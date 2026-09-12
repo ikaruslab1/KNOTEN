@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
-import { BookOpen, Pencil, Plus } from 'lucide-react'
+import { BookOpen } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import CreateCourseModalTrigger from '@/components/professor/CreateCourseModalTrigger'
+import EditCourseModalTrigger from '@/components/professor/EditCourseModalTrigger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -118,29 +119,9 @@ function CourseCard({ course }: { course: Course }) {
             <BookOpen className="h-3.5 w-3.5" />
             Ver sesiones
           </Link>
-          <EditCourseButton course={course} />
+          <EditCourseModalTrigger course={course} />
         </div>
       </div>
     </article>
-  )
-}
-
-// ─── Edit Button (client island, inline) ──────────────────────────────────────
-// We keep this as a separate import to stay within the Server Component tree.
-// The actual modal is mounted by CreateCourseModalTrigger which handles both
-// create and edit modes.
-
-function EditCourseButton({ course }: { course: Course }) {
-  // We pass the course data as a serialised query param and let the
-  // CreateCourseModalTrigger on the page handle it. Here we just navigate.
-  return (
-    <Link
-      href={`/profesor/curso/${course.id}/editar`}
-      className="flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition hover:bg-gray-50"
-      aria-label={`Editar ${course.nombre}`}
-    >
-      <Pencil className="h-3.5 w-3.5" />
-      Editar
-    </Link>
   )
 }

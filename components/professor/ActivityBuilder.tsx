@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, useCallback } from 'react'
-import { ArrowUp, ArrowDown, ChevronRight, ChevronLeft, Loader2, CheckCircle2 } from 'lucide-react'
+import { useState, useCallback, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { ArrowUp, ArrowDown, ChevronRight, ChevronLeft, Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { splitPythonCode, type SplitBlock } from '@/lib/code-splitter'
+import { splitPythonCode, getDefaultPositions, type SplitBlock } from '@/lib/code-splitter'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -24,23 +26,71 @@ type ToastState = 'idle' | 'saving' | 'success' | 'error'
 type Props = {
   activityId: string
   initialActivity: Activity
+  initialBlocks?: SplitBlock[]
+}
+
+// ─── Helper: reconstruct Python code from blocks ──────────────────────────────
+
+function reconstructPythonCode(savedBlocks: SplitBlock[]): string {
+  if (!savedBlocks || savedBlocks.length === 0) return ''
+  const sorted = [...savedBlocks].sort((a, b) => a.orden_correcto - b.orden_correcto)
+  return sorted
+    .filter((b) => b.tipo === 'codigo')
+    .map((b) => ' '.repeat((b.indent_level ?? 0) * 4) + (b.contenido ?? ''))
+    .join('\n')
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ActivityBuilder({ activityId, initialActivity }: Props) {
+export default function ActivityBuilder({ activityId, initialActivity, initialBlocks = [] }: Props) {
+  const router = useRouter()
   const supabase = createClient()
+
+  // Compute initial state from existing saved data
+  const sortedInitial = [...initialBlocks].sort((a, b) => a.orden_correcto - b.orden_correcto)
+  const initialCode = reconstructPythonCode(sortedInitial)
 
   // ── Wizard state ─────────────────────────────────────────────────────────
   const [step, setStep] = useState<Step>(1)
-  const [code, setCode] = useState('')
-  const [blocks, setBlocks] = useState<SplitBlock[]>([])
+  const [code, setCode] = useState(initialCode)
+  const [blocks, setBlocks] = useState<SplitBlock[]>(sortedInitial)
   const [enunciado, setEnunciado] = useState(initialActivity.enunciado ?? '')
   const [resultadoEsperado, setResultadoEsperado] = useState(
     initialActivity.resultado_esperado ?? ''
   )
   const [toast, setToast] = useState<ToastState>('idle')
   const [toastMsg, setToastMsg] = useState('')
+
+  // Sync state if activityId or props change (e.g. clicking chip navigation)
+  useEffect(() => {
+    const sorted = [...initialBlocks].sort((a, b) => a.orden_correcto - b.orden_correcto)
+    setCode(reconstructPythonCode(sorted))
+    setBlocks(sorted)
+    setEnunciado(initialActivity.enunciado ?? '')
+    setResultadoEsperado(initialActivity.resultado_esperado ?? '')
+    setStep(1)
+  }, [activityId, initialActivity, initialBlocks])
+
+  // ── Step Navigation ───────────────────────────────────────────────────────
+  function handleSelectStep(targetStep: Step) {
+    if (targetStep === 1) {
+      setStep(1)
+    } else if (targetStep === 2) {
+      if (blocks.length === 0 && code.trim()) {
+        const split = splitPythonCode(code)
+        setBlocks(split)
+      }
+      if (blocks.length > 0 || code.trim()) {
+        setStep(2)
+      }
+    } else if (targetStep === 4) {
+      if (blocks.length === 0 && code.trim()) {
+        const split = splitPythonCode(code)
+        setBlocks(split)
+      }
+      setStep(4)
+    }
+  }
 
   // ── Step 1 → 2: split the code ────────────────────────────────────────────
   function goToStep2() {
@@ -76,13 +126,16 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
       // Also delete orphan connections (just in case RLS prevents cascade)
       await supabase.from('connections').delete().eq('activity_id', activityId)
 
-      // 2. INSERT new blocks
-      const blockRows = blocks.map((b) => ({
+      // 2. INSERT new blocks with positions
+      const positions = getDefaultPositions(blocks)
+      const blockRows = blocks.map((b, i) => ({
         activity_id: activityId,
         tipo: b.tipo,
         contenido: b.contenido,
         orden_correcto: b.orden_correcto,
         indent_level: b.indent_level,
+        posicion_x: positions[i]?.x ?? (100 + (b.indent_level ?? 0) * 40),
+        posicion_y: positions[i]?.y ?? (100 + i * 80),
       }))
 
       const { data: insertedBlocks, error: blocksInsertErr } = await supabase
@@ -126,6 +179,7 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
 
       if (updateErr) throw updateErr
 
+      router.refresh()
       setToast('success')
       setToastMsg('Actividad guardada correctamente.')
     } catch (err: unknown) {
@@ -134,7 +188,7 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
       setToastMsg(msg)
     }
 
-    setTimeout(() => setToast('idle'), 3500)
+    setTimeout(() => setToast('idle'), 4000)
   }
 
   // ── Keyboard handler: Tab → 4 spaces in the code textarea ─────────────────
@@ -159,7 +213,7 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
   return (
     <div className="flex flex-col gap-6">
       {/* Progress indicator */}
-      <StepIndicator current={step} />
+      <StepIndicator current={step} onSelectStep={handleSelectStep} />
 
       {/* ── Step 1: Code input ──────────────────────────────────────────────── */}
       {step === 1 && (
@@ -347,12 +401,21 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
       {toast !== 'idle' && toast !== 'saving' && (
         <div
           className={cn(
-            'fixed bottom-6 right-6 flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg transition-all',
-            toast === 'success' ? 'bg-green-600' : 'bg-red-600',
+            'fixed bottom-6 right-6 flex items-center gap-3 rounded-2xl px-5 py-3.5 text-sm font-medium text-white shadow-xl transition-all z-50',
+            toast === 'success' ? 'bg-zinc-900 border border-zinc-700' : 'bg-red-600',
           )}
         >
-          {toast === 'success' && <CheckCircle2 className="h-4 w-4" />}
-          {toastMsg}
+          {toast === 'success' && <CheckCircle2 className="h-5 w-5 text-green-400 shrink-0" />}
+          <span>{toastMsg}</span>
+          {toast === 'success' && (
+            <Link
+              href={`/actividad/${activityId}`}
+              target="_blank"
+              className="ml-2 inline-flex items-center gap-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 px-3 py-1 text-xs font-semibold text-white transition border border-zinc-600"
+            >
+              Probar en el lienzo ↗
+            </Link>
+          )}
         </div>
       )}
     </div>
@@ -361,8 +424,14 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
 
-function StepIndicator({ current }: { current: Step }) {
-  const steps = [
+function StepIndicator({
+  current,
+  onSelectStep,
+}: {
+  current: Step
+  onSelectStep: (step: Step) => void
+}) {
+  const steps: Array<{ n: Step; label: string }> = [
     { n: 1, label: 'Código' },
     { n: 2, label: 'Bloques' },
     { n: 4, label: 'Enunciado' },
@@ -378,28 +447,36 @@ function StepIndicator({ current }: { current: Step }) {
         const done = displayIndex > i
         return (
           <li key={s.n} className="flex flex-1 items-center">
-            <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onSelectStep(s.n)}
+              className="flex items-center gap-2 group cursor-pointer text-left focus:outline-none"
+            >
               <span
                 className={cn(
-                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition',
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition group-hover:scale-105',
                   done
                     ? 'bg-zinc-900 text-white'
                     : active
                     ? 'bg-zinc-900 text-white ring-4 ring-zinc-200'
-                    : 'bg-zinc-200 text-zinc-600',
+                    : 'bg-zinc-200 text-zinc-600 group-hover:bg-zinc-300',
                 )}
               >
                 {s.n === 4 ? 3 : s.n}
               </span>
               <span
                 className={cn(
-                  'hidden text-xs font-medium sm:block',
-                  active ? 'text-zinc-900 font-bold' : done ? 'text-zinc-600' : 'text-zinc-400',
+                  'hidden text-xs font-medium sm:block transition',
+                  active
+                    ? 'text-zinc-900 font-bold'
+                    : done
+                    ? 'text-zinc-600'
+                    : 'text-zinc-400 group-hover:text-zinc-700',
                 )}
               >
                 {s.label}
               </span>
-            </div>
+            </button>
             {i < steps.length - 1 && (
               <div
                 className={cn(

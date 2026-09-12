@@ -19,6 +19,15 @@ type ActivityDetail = {
   resultado_esperado: string | null
   orden: number
   session_id: string
+  blocks?: Array<{
+    id: string
+    tipo: 'codigo' | 'indentacion' | 'sticker'
+    contenido: string | null
+    orden_correcto: number
+    indent_level: number
+    posicion_x: number
+    posicion_y: number
+  }>
   sessions: {
     id: string
     nombre: string
@@ -45,11 +54,12 @@ export default async function ProfesorActividadPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/')
 
-  // Fetch the activity with its session and course
+  // Fetch the activity with its session, course, and existing blocks
   const { data: activity } = await supabase
     .from('activities')
     .select(
       `id, titulo, enunciado, resultado_esperado, orden, session_id,
+       blocks ( id, tipo, contenido, orden_correcto, indent_level, posicion_x, posicion_y ),
        sessions ( id, nombre, courses ( id, nombre ) )`
     )
     .eq('id', id)
@@ -60,6 +70,7 @@ export default async function ProfesorActividadPage({
   const activityData = activity as unknown as ActivityDetail
   const session = activityData.sessions
   const course = session.courses
+  const blocks = (activityData.blocks ?? []).sort((a, b) => a.orden_correcto - b.orden_correcto)
 
   // Fetch ALL activities in the same session (for nav chips)
   const { data: sessionActivities } = await supabase
@@ -92,9 +103,19 @@ export default async function ProfesorActividadPage({
               {session.nombre}
             </span>
           </nav>
-          <h1 className="mt-1 text-xl font-bold text-zinc-900">
-            {activityData.titulo}
-          </h1>
+          <div className="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h1 className="text-xl font-bold text-zinc-900">
+              {activityData.titulo}
+            </h1>
+            <Link
+              href={`/actividad/${id}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 transition"
+              title="Abrir en el lienzo como lo verá el estudiante"
+            >
+              Probar en el lienzo ↗
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -134,6 +155,12 @@ export default async function ProfesorActividadPage({
             orden: activityData.orden,
             session_id: activityData.session_id,
           }}
+          initialBlocks={blocks.map((b) => ({
+            tipo: b.tipo,
+            contenido: b.contenido ?? '',
+            orden_correcto: b.orden_correcto,
+            indent_level: b.indent_level,
+          }))}
         />
       </main>
     </div>

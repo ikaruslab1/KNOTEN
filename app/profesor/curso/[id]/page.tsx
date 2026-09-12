@@ -76,18 +76,27 @@ export default async function ProfesorCursoPage({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header / breadcrumb */}
-      <header className="border-b border-gray-200 bg-white px-6 py-4">
+      <header className="border-b border-zinc-200 bg-white px-6 py-4">
         <div className="mx-auto max-w-5xl">
-          <nav className="flex items-center gap-1.5 text-sm text-gray-500">
-            <Link href="/profesor" className="hover:text-blue-600 transition-colors">
+          <nav className="flex items-center gap-1.5 text-sm text-zinc-500">
+            <Link href="/profesor" className="hover:text-zinc-900 transition-colors">
               Mis cursos
             </Link>
-            <ChevronRight className="h-4 w-4 text-gray-400" />
-            <span className="font-medium text-gray-900 truncate max-w-xs">
+            <ChevronRight className="h-4 w-4 text-zinc-400" />
+            <span className="font-medium text-zinc-900 truncate max-w-xs">
               {course.nombre}
             </span>
           </nav>
-          <h1 className="mt-1 text-2xl font-bold text-gray-900">{course.nombre}</h1>
+          <div className="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <h1 className="text-2xl font-bold text-zinc-900">{course.nombre}</h1>
+            <Link
+              href={`/curso/${id}`}
+              target="_blank"
+              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 transition"
+            >
+              Ver vista pública del curso ↗
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -140,31 +149,53 @@ export default async function ProfesorCursoPage({
 
 function SessionRow({ session }: { session: Session }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
-      {/* Info */}
-      <div className="flex-1 min-w-0">
-        <p className="font-semibold text-zinc-900 truncate">{session.nombre}</p>
-        <p className="mt-0.5 text-xs text-zinc-500">
-          {session.fecha_liberacion
-            ? `Liberación: ${formatDate(session.fecha_liberacion)}`
-            : 'Sin fecha de liberación'}
-          {' · '}
-          {session.activities.length} actividad
-          {session.activities.length !== 1 ? 'es' : ''}
-        </p>
+    <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-zinc-900 text-base">{session.nombre}</p>
+          <p className="mt-0.5 text-xs text-zinc-500">
+            {session.fecha_liberacion
+              ? `Liberación: ${formatDate(session.fecha_liberacion)}`
+              : 'Disponible inmediatamente'}
+            {' · '}
+            {session.activities.length} actividad
+            {session.activities.length !== 1 ? 'es' : ''}
+          </p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex shrink-0 gap-2">
+          {session.activities.length > 0 && (
+            <Link
+              href={`/actividad/${session.activities[0].id}`}
+              target="_blank"
+              className="flex items-center gap-1 rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:bg-zinc-50 transition"
+            >
+              Vista alumno ↗
+            </Link>
+          )}
+        </div>
       </div>
 
-      {/* Actions */}
-      <div className="flex shrink-0 gap-2">
-        <Link
-          href={`/profesor/actividad/${session.activities[0]?.id ?? '#'}`}
-          className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition hover:bg-zinc-200 disabled:pointer-events-none disabled:opacity-50"
-          aria-disabled={session.activities.length === 0}
-        >
-          <Pencil className="h-3.5 w-3.5" />
-          Editar actividades
-        </Link>
-      </div>
+      {/* Activities list chips */}
+      {session.activities.length > 0 ? (
+        <div className="mt-1 pt-3 border-t border-zinc-100 flex flex-wrap items-center gap-2">
+          <span className="text-xs font-medium text-zinc-400">Actividades:</span>
+          {session.activities.map((act, index) => (
+            <Link
+              key={act.id}
+              href={`/profesor/actividad/${act.id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-zinc-400 text-zinc-800 text-xs font-medium transition"
+            >
+              <Pencil className="w-3 h-3 text-zinc-500" />
+              <span>Actividad {index + 1}</span>
+            </Link>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-1 text-xs text-zinc-400 italic">No hay actividades creadas en esta sesión.</p>
+      )}
     </div>
   )
 }

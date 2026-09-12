@@ -1,5 +1,5 @@
-﻿export type SplitBlock = {
-  tipo: 'codigo' | 'indentacion'
+export type SplitBlock = {
+  tipo: 'codigo' | 'indentacion' | 'sticker'
   contenido: string // empty string for indentation blocks
   orden_correcto: number
   indent_level: number // 0-based indentation depth (each 4 spaces = 1 level)

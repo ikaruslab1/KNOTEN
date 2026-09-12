@@ -19,6 +19,8 @@ import ReactFlow, {
 import "reactflow/dist/style.css"
 import confetti from "canvas-confetti"
 
+import Link from "next/link"
+import { ChevronLeft } from "lucide-react"
 import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
@@ -32,19 +34,24 @@ export type BlockType = "codigo" | "indentacion" | "sticker"
 
 export interface Block {
   id: string
-  actividad_id: string
+  activity_id?: string
+  actividad_id?: string
   tipo: BlockType
-  contenido: string
-  posicion_x: number
-  posicion_y: number
-  orden: number
+  contenido: string | null
+  posicion_x?: number
+  posicion_y?: number
+  orden_correcto?: number
+  indent_level?: number
 }
 
 export interface BlockConnection {
   id: string
-  actividad_id: string
+  activity_id?: string
+  actividad_id?: string
   source_block_id: string
   target_block_id: string
+  source_handle?: string | null
+  target_handle?: string | null
 }
 
 type TerminalStatus = "idle" | "running" | "success" | "error"
@@ -59,8 +66,11 @@ type AppEdge = Edge<EdgeData>
 
 type NodeState = "idle" | "connected" | "success" | "error"
 
-interface FlowCanvasProps {
+export interface FlowCanvasProps {
   activityId: string
+  activityTitle?: string
+  courseId?: string
+  courseName?: string
   blocks: Block[]
   connections: BlockConnection[] // correct connections from DB – NOT shown to student
   enunciado: string
@@ -121,10 +131,22 @@ const edgeTypes = {
 // ─── Helper: initialise nodes from blocks ─────────────────────────────────────
 
 function blocksToNodes(blocks: Block[]): Node[] {
-  return blocks.map((block) => {
+  return blocks.map((block, index) => {
+    // Default staggered layout if positions are 0 or unset
+    const defaultX = 120 + (index % 2) * 320
+    const defaultY = 120 + Math.floor(index / 2) * 160
+    const posX =
+      block.posicion_x !== undefined && block.posicion_x !== 0
+        ? block.posicion_x
+        : defaultX
+    const posY =
+      block.posicion_y !== undefined && block.posicion_y !== 0
+        ? block.posicion_y
+        : defaultY
+
     const base = {
       id: block.id,
-      position: { x: block.posicion_x, y: block.posicion_y },
+      position: { x: posX, y: posY },
       draggable: true,
     }
 
@@ -132,7 +154,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
       return {
         ...base,
         type: "codeBlock",
-        data: { code: block.contenido, state: "idle" as NodeState },
+        data: { code: block.contenido ?? '', state: "idle" as NodeState },
       }
     }
 
@@ -148,7 +170,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
     return {
       ...base,
       type: "sticker",
-      data: { emoji: block.contenido },
+      data: { emoji: block.contenido ?? '✔️' },
     }
   })
 }
@@ -157,6 +179,9 @@ function blocksToNodes(blocks: Block[]): Node[] {
 
 function FlowCanvasInner({
   activityId,
+  activityTitle,
+  courseId,
+  courseName,
   blocks,
   connections,
   enunciado,
@@ -331,6 +356,23 @@ function FlowCanvasInner({
 
   return (
     <div className="w-full h-screen relative">
+      {/* Top-left back button & activity title */}
+      <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
+        <Link
+          href={courseId ? `/curso/${courseId}` : '/'}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 shadow-sm text-xs font-semibold transition"
+          title="Volver al curso"
+        >
+          <ChevronLeft className="w-4 h-4" />
+          <span>{courseName ? courseName : 'Volver al curso'}</span>
+        </Link>
+        {activityTitle && (
+          <span className="hidden sm:inline-block px-3 py-2 rounded-xl bg-white/90 backdrop-blur-sm border border-zinc-200 text-zinc-800 text-xs font-semibold shadow-sm">
+            {activityTitle}
+          </span>
+        )}
+      </div>
+
       <Toolbar
         attempts={attempts}
         canExecute={canExecute}

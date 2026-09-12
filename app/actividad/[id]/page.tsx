@@ -1,29 +1,6 @@
-﻿import { notFound } from "next/navigation"
+import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import FlowCanvas from "@/components/canvas/FlowCanvas"
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-
-export type BlockType = "codigo" | "indentacion" | "sticker"
-
-export interface Block {
-  id: string
-  actividad_id: string
-  tipo: BlockType
-  contenido: string
-  posicion_x: number
-  posicion_y: number
-  orden: number
-}
-
-export interface BlockConnection {
-  id: string
-  actividad_id: string
-  source_block_id: string
-  target_block_id: string
-}
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
+import FlowCanvas, { Block, BlockConnection } from "@/components/canvas/FlowCanvas"
 
 export default async function ActividadPage({
   params,
@@ -42,27 +19,42 @@ export default async function ActividadPage({
     },
   ] = await Promise.all([
     supabase
-      .from("actividades")
+      .from("activities")
       .select(
         `
         id,
         titulo,
         enunciado,
         resultado_esperado,
-        bloques (
+        orden,
+        session_id,
+        sessions (
           id,
-          actividad_id,
+          nombre,
+          curso_id,
+          courses (
+            id,
+            nombre
+          )
+        ),
+        blocks (
+          id,
+          activity_id,
           tipo,
           contenido,
           posicion_x,
           posicion_y,
-          orden
+          indent_level,
+          orden_correcto
         ),
-        conexiones (
+        connections (
           id,
-          actividad_id,
+          activity_id,
           source_block_id,
-          target_block_id
+          target_block_id,
+          source_handle,
+          target_handle,
+          orden
         )
       `
       )
@@ -75,22 +67,28 @@ export default async function ActividadPage({
     notFound()
   }
 
-  // Sort blocks by their intended order so the canvas initialises predictably
-  const sortedBlocks: Block[] = [...((activity as any).bloques ?? [])].sort(
-    (a: Block, b: Block) => a.orden - b.orden
+  const rawBlocks = (activity.blocks as any[]) ?? []
+  const sortedBlocks: Block[] = [...rawBlocks].sort(
+    (a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0)
   )
 
-  const connections: BlockConnection[] = (activity as any).conexiones ?? []
+  const connections: BlockConnection[] = (activity.connections as any[]) ?? []
+  const sessionData = activity.sessions as any
+  const courseId = sessionData?.curso_id || sessionData?.courses?.id || ''
+  const courseName = sessionData?.courses?.nombre || ''
 
   return (
-    // Full-screen shell – no header, the FlowCanvas Toolbar IS the navigation
+    // Full-screen shell – Toolbar and top navigation handles routing
     <main className="w-full h-screen overflow-hidden">
       <FlowCanvas
-        activityId={(activity as any).id}
+        activityId={activity.id}
+        activityTitle={activity.titulo}
+        courseId={courseId}
+        courseName={courseName}
         blocks={sortedBlocks}
         connections={connections}
-        enunciado={(activity as any).enunciado}
-        resultadoEsperado={(activity as any).resultado_esperado}
+        enunciado={activity.enunciado ?? ''}
+        resultadoEsperado={activity.resultado_esperado ?? ''}
       />
     </main>
   )
