@@ -26,8 +26,11 @@ export async function sendWelcomeEmail(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const resend = getResendClient()
+    const fromConfig = process.env.RESEND_FROM_EMAIL || 'contacto@send.knoten.scherry.click'
+    const fromAddress = fromConfig.includes('<') ? fromConfig : `PyNodes <${fromConfig}>`
+
     await resend.emails.send({
-      from: 'PyNodes <noreply@pynodes.app>', // update domain as needed
+      from: fromAddress,
       to: data.correoPersonal,
       subject: '¡Bienvenido a PyNodes! Confirmación de registro',
       html: buildWelcomeEmailHTML(data),
@@ -136,7 +139,7 @@ function buildWelcomeEmailHTML(data: WelcomeEmailData): string {
           <!-- CTA -->
           <tr>
             <td style="padding:0 40px 36px;text-align:center;">
-              <a href="https://pynodes.app/login"
+              <a href="${process.env.NEXT_PUBLIC_APP_URL || 'https://knoten.scherry.click'}/login"
                  style="display:inline-block;background:#2563eb;color:#ffffff;
                          text-decoration:none;font-size:15px;font-weight:600;
                          padding:14px 36px;border-radius:8px;letter-spacing:0.02em;">
