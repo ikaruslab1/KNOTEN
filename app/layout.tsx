@@ -3,8 +3,8 @@ import './globals.css'
 import { ToastProvider } from '@/components/ui/ToastProvider'
 
 export const metadata: Metadata = {
-  title: 'PyNodes — Aprende Python Visualmente',
-  description: 'Plataforma educativa de programación visual en Python',
+  title: 'Knoten — Programación Visual en Python',
+  description: 'Plataforma educativa de programación visual mediante nodos en Python',
 }
 
 export default function RootLayout({

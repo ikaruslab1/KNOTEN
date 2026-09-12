@@ -178,9 +178,9 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
               onKeyDown={handleCodeKeyDown}
               spellCheck={false}
               placeholder={"def saludo(nombre):\n    print(f'Hola, {nombre}!')\n\nsaludo('Mundo')"}
-              className="min-h-64 rounded-xl border border-gray-300 bg-white px-4 py-3 font-mono text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y"
+              className="min-h-64 rounded-xl border border-zinc-300 bg-white px-4 py-3 font-mono text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15 resize-y"
             />
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-zinc-400">
               La tecla Tab inserta 4 espacios. Las líneas en blanco son ignoradas.
             </p>
           </div>
@@ -191,8 +191,8 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
               onClick={goToStep2}
               disabled={!code.trim()}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition',
-                !code.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700',
+                'flex items-center gap-1.5 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition',
+                !code.trim() ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-800',
               )}
             >
               Siguiente
@@ -246,8 +246,8 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
               onClick={() => setStep(4)}
               disabled={blocks.length === 0}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white transition',
-                blocks.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700',
+                'flex items-center gap-1.5 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition',
+                blocks.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-800',
               )}
             >
               Confirmar bloques
@@ -261,10 +261,10 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
       {step === 4 && (
         <section className="flex flex-col gap-5">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">
+            <h2 className="text-base font-semibold text-zinc-900">
               Enunciado y resultado esperado
             </h2>
-            <p className="text-sm text-gray-500">
+            <p className="text-sm text-zinc-500">
               Escribe las instrucciones para el alumno y el resultado que verá en
               la terminal.
             </p>
@@ -274,7 +274,7 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="enunciado"
-              className="text-sm font-medium text-gray-700"
+              className="text-sm font-medium text-zinc-700"
             >
               Enunciado / Instrucciones del problema
             </label>
@@ -284,7 +284,7 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
               onChange={(e) => setEnunciado(e.target.value)}
               rows={5}
               placeholder="Escribe las instrucciones que verá el alumno…"
-              className="rounded-xl border border-gray-300 bg-white px-4 py-3 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y"
+              className="rounded-xl border border-zinc-300 bg-white px-4 py-3 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15 resize-y"
             />
           </div>
 
@@ -292,10 +292,10 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="resultado"
-              className="text-sm font-medium text-gray-700"
+              className="text-sm font-medium text-zinc-700"
             >
               Resultado esperado{' '}
-              <span className="font-normal text-gray-400">
+              <span className="font-normal text-zinc-400">
                 (lo que verá el alumno en la terminal)
               </span>
             </label>
@@ -306,12 +306,12 @@ export default function ActivityBuilder({ activityId, initialActivity }: Props) 
               rows={4}
               spellCheck={false}
               placeholder={"Hola, Mundo!"}
-              className="rounded-xl border border-gray-300 bg-white px-4 py-3 font-mono text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 resize-y"
+              className="rounded-xl border border-zinc-300 bg-white px-4 py-3 font-mono text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15 resize-y"
             />
           </div>
 
           {/* Summary */}
-          <div className="rounded-xl border border-gray-100 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm text-zinc-600">
             Se guardarán <strong>{blocks.length}</strong> bloque
             {blocks.length !== 1 ? 's' : ''} para esta actividad.
           </div>
@@ -383,10 +383,10 @@ function StepIndicator({ current }: { current: Step }) {
                 className={cn(
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition',
                   done
-                    ? 'bg-blue-600 text-white'
+                    ? 'bg-zinc-900 text-white'
                     : active
-                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
-                    : 'bg-gray-200 text-gray-500',
+                    ? 'bg-zinc-900 text-white ring-4 ring-zinc-200'
+                    : 'bg-zinc-200 text-zinc-600',
                 )}
               >
                 {s.n === 4 ? 3 : s.n}
@@ -394,7 +394,7 @@ function StepIndicator({ current }: { current: Step }) {
               <span
                 className={cn(
                   'hidden text-xs font-medium sm:block',
-                  active ? 'text-blue-700' : done ? 'text-gray-500' : 'text-gray-400',
+                  active ? 'text-zinc-900 font-bold' : done ? 'text-zinc-600' : 'text-zinc-400',
                 )}
               >
                 {s.label}
@@ -404,7 +404,7 @@ function StepIndicator({ current }: { current: Step }) {
               <div
                 className={cn(
                   'mx-2 h-px flex-1 transition',
-                  done ? 'bg-blue-400' : 'bg-gray-200',
+                  done ? 'bg-zinc-900' : 'bg-zinc-200',
                 )}
               />
             )}
@@ -428,9 +428,9 @@ function BlockCard({ block, index, total, onMove }: BlockCardProps) {
   const isCodigo = block.tipo === 'codigo'
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
+    <div className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
       {/* Number badge */}
-      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 border border-zinc-200 text-xs font-bold text-zinc-900">
         {index + 1}
       </span>
 
@@ -440,7 +440,7 @@ function BlockCard({ block, index, total, onMove }: BlockCardProps) {
           <span
             className={cn(
               'rounded-md px-2 py-0.5 text-xs font-medium',
-              isCodigo ? 'bg-gray-100 text-gray-600' : 'bg-orange-100 text-orange-700',
+              isCodigo ? 'bg-zinc-100 text-zinc-700' : 'bg-zinc-200 text-zinc-800',
             )}
           >
             {isCodigo ? 'código' : 'indentación'}

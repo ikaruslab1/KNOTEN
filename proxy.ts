@@ -45,11 +45,11 @@ export async function proxy(request: NextRequest) {
     // Fetch the user profile to check role
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('rol')
       .eq('id', user.id)
       .single()
 
-    if (!profile || profile.role !== 'profesor') {
+    if (!profile || profile.rol !== 'profesor') {
       const redirectUrl = request.nextUrl.clone()
       redirectUrl.pathname = '/'
       return NextResponse.redirect(redirectUrl)

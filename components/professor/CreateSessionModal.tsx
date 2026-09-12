@@ -193,7 +193,7 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
               required
               value={numClase}
               onChange={(e) => setNumClase(Number(e.target.value))}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
             />
           </div>
           <div className="flex flex-col gap-1.5">
@@ -206,7 +206,7 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
               min={0}
               value={numRepaso}
               onChange={(e) => setNumRepaso(Number(e.target.value))}
-              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
             />
           </div>
         </div>
@@ -227,7 +227,7 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
             type="datetime-local"
             value={fechaLiberacion}
             onChange={(e) => setFechaLiberacion(e.target.value)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
         </div>
 
@@ -249,8 +249,8 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
             type="submit"
             disabled={saving}
             className={cn(
-              'flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition',
-              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700',
+              'flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition',
+              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
             )}
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}

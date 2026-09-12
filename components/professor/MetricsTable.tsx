@@ -69,16 +69,16 @@ export default function MetricsTable({ rows, courses }: Props) {
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return <ArrowUpDown className="h-3.5 w-3.5 text-gray-400" />
     return sortDir === 'asc' ? (
-      <ArrowUp className="h-3.5 w-3.5 text-blue-600" />
+      <ArrowUp className="h-3.5 w-3.5 text-zinc-900" />
     ) : (
-      <ArrowDown className="h-3.5 w-3.5 text-blue-600" />
+      <ArrowDown className="h-3.5 w-3.5 text-zinc-900" />
     )
   }
 
   const thClass =
-    'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-gray-500 select-none'
+    'px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 select-none'
   const thBtnClass =
-    'flex items-center gap-1.5 hover:text-gray-900 transition-colors cursor-pointer'
+    'flex items-center gap-1.5 hover:text-zinc-900 transition-colors cursor-pointer'
 
   return (
     <div className="flex flex-col gap-5">
@@ -89,7 +89,7 @@ export default function MetricsTable({ rows, courses }: Props) {
           <div className="flex items-center gap-2">
             <label
               htmlFor="course-filter"
-              className="text-sm font-medium text-gray-700"
+              className="text-sm font-medium text-zinc-700"
             >
               Curso:
             </label>
@@ -97,7 +97,7 @@ export default function MetricsTable({ rows, courses }: Props) {
               id="course-filter"
               value={selectedCourse}
               onChange={(e) => setSelectedCourse(e.target.value)}
-              className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              className="rounded-lg border border-zinc-300 px-3 py-1.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
             >
               <option value="all">Todos los cursos</option>
               {courses.map((c) => (

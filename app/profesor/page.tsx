@@ -87,7 +87,7 @@ function CourseCard({ course }: { course: Course }) {
   return (
     <article className="group flex flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition hover:shadow-md">
       {/* Cover image */}
-      <div className="relative h-40 w-full bg-gradient-to-br from-blue-100 to-indigo-100">
+      <div className="relative h-40 w-full bg-zinc-900 overflow-hidden">
         {course.imagen_url ? (
           <Image
             src={course.imagen_url}
@@ -97,15 +97,15 @@ function CourseCard({ course }: { course: Course }) {
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 25vw"
           />
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <BookOpen className="h-12 w-12 text-blue-300" />
+          <div className="flex h-full items-center justify-center bg-gradient-to-br from-zinc-800 to-zinc-950">
+            <BookOpen className="h-10 w-10 text-zinc-600" />
           </div>
         )}
       </div>
 
       {/* Body */}
       <div className="flex flex-1 flex-col gap-3 p-4">
-        <h2 className="line-clamp-2 text-base font-semibold text-gray-900 leading-snug">
+        <h2 className="line-clamp-2 text-base font-semibold text-zinc-900 leading-snug">
           {course.nombre}
         </h2>
 
@@ -113,7 +113,7 @@ function CourseCard({ course }: { course: Course }) {
         <div className="mt-auto flex gap-2">
           <Link
             href={`/profesor/curso/${course.id}`}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700 transition hover:bg-blue-100"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-900 transition hover:bg-zinc-200"
           >
             <BookOpen className="h-3.5 w-3.5" />
             Ver sesiones

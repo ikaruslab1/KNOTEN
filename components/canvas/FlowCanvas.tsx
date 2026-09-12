@@ -86,7 +86,7 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
   const isSuccess: boolean = data?.success ?? false
   const isError: boolean = data?.error ?? false
 
-  const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : "#3b82f6"
+  const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : "#18181b"
 
   return (
     <>
@@ -211,7 +211,7 @@ function FlowCanvasInner({
         id: `e-${connection.source}-${connection.target}-${Date.now()}`,
         type: "spring",
         data: { animating: false, success: false, error: false },
-        style: { stroke: "#3b82f6", strokeWidth: 2 },
+        style: { stroke: "#18181b", strokeWidth: 2 },
       } as Edge
 
       setEdges((eds) => addEdge(newEdge, eds))

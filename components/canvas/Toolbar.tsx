@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import { useState, useRef, useEffect } from 'react'
 import {
   Crosshair,
@@ -118,8 +118,8 @@ export default function Toolbar({
         disabled={!canExecute}
         title="Ejecutar"
         className={cn(
-          'flex items-center gap-1.5 bg-blue-500 text-white rounded-xl px-4 py-1.5 text-sm font-medium transition-opacity hover:bg-blue-600',
-          !canExecute && 'opacity-50 cursor-not-allowed',
+          'flex items-center gap-1.5 bg-zinc-900 text-white rounded-xl px-4 py-1.5 text-sm font-medium transition-all hover:bg-zinc-800 active:bg-black',
+          !canExecute && 'opacity-40 cursor-not-allowed',
         )}
       >
         <PlayCircle size={16} />

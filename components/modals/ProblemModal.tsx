@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import { X, BookOpen } from 'lucide-react'
 
 type ProblemModalProps = {
@@ -27,7 +27,7 @@ export default function ProblemModal({
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2 text-gray-800">
-            <BookOpen size={20} className="text-blue-500" />
+            <BookOpen size={20} className="text-zinc-800" />
             <h2 className="text-base font-semibold">Problema</h2>
           </div>
           <button

@@ -17,7 +17,7 @@ export default function CreateCourseModalTrigger() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-gray-300 bg-white p-6 text-gray-400 transition hover:border-blue-400 hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-zinc-300 bg-white p-6 text-zinc-400 transition hover:border-zinc-800 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 cursor-pointer"
       >
         <span className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-dashed border-current">
           <Plus className="h-6 w-6" />

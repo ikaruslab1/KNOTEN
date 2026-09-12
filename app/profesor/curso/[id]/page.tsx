@@ -95,9 +95,9 @@ export default async function ProfesorCursoPage({
         {/* ── En clase ─────────────────────────────────────────────────────── */}
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-blue-500" />
-            <h2 className="text-lg font-semibold text-gray-900">En clase</h2>
-            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">
+            <BookOpen className="h-5 w-5 text-zinc-800" />
+            <h2 className="text-lg font-semibold text-zinc-900">En clase</h2>
+            <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
               {claseSessions.length}
             </span>
           </div>
@@ -115,9 +115,9 @@ export default async function ProfesorCursoPage({
         {/* ── Repaso ───────────────────────────────────────────────────────── */}
         <section>
           <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-amber-500" />
-            <h2 className="text-lg font-semibold text-gray-900">Repaso</h2>
-            <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-700">
+            <Clock className="h-5 w-5 text-zinc-600" />
+            <h2 className="text-lg font-semibold text-zinc-900">Repaso</h2>
+            <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
               {repasoSessions.length}
             </span>
           </div>
@@ -140,11 +140,11 @@ export default async function ProfesorCursoPage({
 
 function SessionRow({ session }: { session: Session }) {
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
+    <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 bg-white p-4 shadow-sm sm:flex-row sm:items-center">
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 truncate">{session.nombre}</p>
-        <p className="mt-0.5 text-xs text-gray-400">
+        <p className="font-semibold text-zinc-900 truncate">{session.nombre}</p>
+        <p className="mt-0.5 text-xs text-zinc-500">
           {session.fecha_liberacion
             ? `Liberación: ${formatDate(session.fecha_liberacion)}`
             : 'Sin fecha de liberación'}
@@ -158,7 +158,7 @@ function SessionRow({ session }: { session: Session }) {
       <div className="flex shrink-0 gap-2">
         <Link
           href={`/profesor/actividad/${session.activities[0]?.id ?? '#'}`}
-          className="flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100 disabled:pointer-events-none disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-xs font-medium text-zinc-900 transition hover:bg-zinc-200 disabled:pointer-events-none disabled:opacity-50"
           aria-disabled={session.activities.length === 0}
         >
           <Pencil className="h-3.5 w-3.5" />

@@ -31,7 +31,7 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             'w-full px-3 py-2.5 text-sm rounded-xl border bg-white',
             'placeholder:text-gray-400 text-gray-900',
             'transition-colors duration-150',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500',
+            'focus:outline-none focus:ring-2 focus:ring-zinc-900/15 focus:border-zinc-900',
             error
               ? 'border-red-400 focus:ring-red-500/30 focus:border-red-500'
               : 'border-gray-300 hover:border-gray-400',
@@ -73,7 +73,7 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
           className={cn(
             'w-full px-3 py-2.5 text-sm rounded-xl border bg-white',
             'text-gray-900 transition-colors duration-150',
-            'focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500',
+            'focus:outline-none focus:ring-2 focus:ring-zinc-900/15 focus:border-zinc-900',
             error ? 'border-red-400' : 'border-gray-300 hover:border-gray-400',
             'disabled:opacity-50 disabled:cursor-not-allowed',
             className

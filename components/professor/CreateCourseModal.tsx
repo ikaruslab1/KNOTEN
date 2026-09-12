@@ -172,7 +172,7 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
             placeholder="Ej. Introducción a Python"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
         </div>
 
@@ -180,10 +180,10 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
         <div className="flex flex-col gap-1.5">
           <label
             htmlFor="course-imagen"
-            className="text-sm font-medium text-gray-700"
+            className="text-sm font-medium text-zinc-700"
           >
             URL de imagen{' '}
-            <span className="font-normal text-gray-400">(opcional)</span>
+            <span className="font-normal text-zinc-400">(opcional)</span>
           </label>
           <input
             id="course-imagen"
@@ -191,11 +191,11 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
             value={imagenUrl}
             onChange={(e) => setImagenUrl(e.target.value)}
             placeholder="https://example.com/imagen.png"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
           {/* Image preview */}
           {previewUrl && (
-            <div className="mt-2 overflow-hidden rounded-xl border border-gray-200">
+            <div className="mt-2 overflow-hidden rounded-xl border border-zinc-200">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={previewUrl}
@@ -221,7 +221,7 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+            className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
           >
             Cancelar
           </button>
@@ -229,8 +229,8 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
             type="submit"
             disabled={saving}
             className={cn(
-              'flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2 text-sm font-medium text-white transition',
-              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700',
+              'flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition',
+              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
             )}
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}

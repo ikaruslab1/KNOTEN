@@ -1,50 +1,66 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { sendWelcomeEmail, WelcomeEmailData } from '@/lib/resend'
 
 export async function POST(request: NextRequest) {
-  // ── Parse body ──────────────────────────────────────────────────────────
-  let body: unknown
+  let body: Record<string, unknown>
 
   try {
-    body = await request.json()
+    body = (await request.json()) as Record<string, unknown>
   } catch {
     return NextResponse.json(
-      { success: false, message: 'Cuerpo de la solicitud invalido.' },
+      { success: false, message: 'Cuerpo de la solicitud inválido.' },
       { status: 400 },
     )
   }
 
-  // ── Validate required fields ─────────────────────────────────────────────
-  const required: (keyof WelcomeEmailData)[] = [
-    'nombre',
-    'apellidoPaterno',
-    'apellidoMaterno',
-    'grupo',
-    'semestre',
-    'carrera',
-    'correoPersonal',
-    'correoInstitucional',
-    'password',
-  ]
+  // Normalize incoming fields supporting both camelCase and snake_case
+  const nombre = String(body.nombre ?? '').trim()
+  const apellidoPaterno = String(body.apellidoPaterno ?? body.apellido_paterno ?? '').trim()
+  const apellidoMaterno = String(body.apellidoMaterno ?? body.apellido_materno ?? '').trim()
+  const grupo = String(body.grupo ?? '').trim()
+  const semestre = String(body.semestre ?? '').trim()
+  const carrera = String(body.carrera ?? '').trim()
+  const correoPersonal = String(body.correoPersonal ?? body.correo_personal ?? '').trim()
+  const correoInstitucional = String(body.correoInstitucional ?? body.correo_institucional ?? '').trim()
+  const password = String(body.password ?? '')
 
-  const data = body as Record<string, unknown>
-
-  for (const field of required) {
-    if (typeof data[field] !== 'string' || (data[field] as string).trim() === '') {
-      return NextResponse.json(
-        { success: false, message: `El campo '${field}' es obligatorio.` },
-        { status: 422 },
-      )
-    }
+  if (
+    !nombre ||
+    !apellidoPaterno ||
+    !apellidoMaterno ||
+    !grupo ||
+    !semestre ||
+    !carrera ||
+    !correoPersonal ||
+    !password
+  ) {
+    return NextResponse.json(
+      {
+        success: false,
+        message: 'Faltan campos obligatorios para el correo de bienvenida.',
+      },
+      { status: 422 },
+    )
   }
 
-  // ── Send email ───────────────────────────────────────────────────────────
-  const result = await sendWelcomeEmail(data as WelcomeEmailData)
+  const emailData: WelcomeEmailData = {
+    nombre,
+    apellidoPaterno,
+    apellidoMaterno,
+    grupo,
+    semestre,
+    carrera,
+    correoPersonal,
+    correoInstitucional,
+    password,
+  }
+
+  const result = await sendWelcomeEmail(emailData)
 
   if (!result.success) {
     console.error('[send-welcome] Resend error:', result.error)
     return NextResponse.json(
-      { success: false, message: 'No se pudo enviar el correo de bienvenida.' },
+      { success: false, message: 'No se pudo enviar el correo de bienvenida.', error: result.error },
       { status: 502 },
     )
   }

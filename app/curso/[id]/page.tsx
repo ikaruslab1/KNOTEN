@@ -1,7 +1,8 @@
 import Image from 'next/image';
 import Link from 'next/link';
-import { Lock } from 'lucide-react';
+import { Lock, ChevronLeft, Calendar } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import { NavBar } from '@/components/ui/NavBar';
 import { cn } from '@/lib/utils';
 
 interface Activity {
@@ -20,7 +21,7 @@ interface Session {
 interface Course {
   id: string;
   nombre: string;
-  imagen_portada: string | null;
+  imagen_url: string | null;
   profesor_id: string;
   sessions: Session[];
 }
@@ -42,24 +43,24 @@ function isInFuture(dateStr: string | null): boolean {
 interface SessionCardProps {
   session: Session;
   isProfessor: boolean;
-  isCourseOwner: boolean;
 }
 
-function SessionCard({ session, isProfessor, isCourseOwner }: SessionCardProps) {
+function SessionCard({ session, isProfessor }: SessionCardProps) {
   const locked = isInFuture(session.fecha_liberacion);
   const firstActivityId = session.activities?.[0]?.id;
-  const href = firstActivityId ? `/actividad/${firstActivityId}` : `/sesion/${session.id}`;
+  const href = firstActivityId ? `/actividad/${firstActivityId}` : '#';
 
   // Locked for students: show non-clickable locked card
   if (locked && !isProfessor) {
     return (
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 flex flex-col gap-2 cursor-not-allowed select-none">
-        <div className="flex items-center gap-2 text-gray-400">
-          <Lock className="w-4 h-4 flex-shrink-0" />
-          <span className="font-medium text-sm text-gray-500">{session.nombre}</span>
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-100/70 p-5 flex flex-col justify-between min-h-[120px] cursor-not-allowed select-none opacity-80">
+        <div className="flex items-start justify-between gap-2 text-zinc-400">
+          <span className="font-semibold text-base text-zinc-600">{session.nombre}</span>
+          <Lock className="w-4 h-4 shrink-0 text-zinc-500 mt-1" />
         </div>
         {session.fecha_liberacion && (
-          <p className="text-xs text-gray-400">
+          <p className="text-xs font-medium text-zinc-500 flex items-center gap-1.5 mt-4">
+            <Calendar className="w-3.5 h-3.5" />
             Clase disponible el {formatDate(session.fecha_liberacion)}
           </p>
         )}
@@ -67,20 +68,27 @@ function SessionCard({ session, isProfessor, isCourseOwner }: SessionCardProps) 
     );
   }
 
-  // Locked but professor owns the course: clickable with amber banner
-  if (locked && isProfessor && isCourseOwner) {
+  // Locked but user is Professor: clickable with gray banner indicating hidden from students
+  if (locked && isProfessor) {
     return (
-      <Link href={href} className="rounded-xl border border-amber-300 bg-white overflow-hidden block hover:shadow-md transition-shadow">
-        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2">
-          <p className="text-xs text-amber-700 font-medium">
-            Este contenido está oculto para los alumnos
+      <Link
+        href={href}
+        className="rounded-2xl border border-zinc-300 bg-white overflow-hidden block hover:shadow-md hover:border-zinc-500 transition-all shadow-sm"
+      >
+        <div className="bg-zinc-200 border-b border-zinc-300 px-4 py-2 flex items-center justify-between">
+          <p className="text-xs text-zinc-700 font-semibold tracking-tight">
+            Contenido oculto para alumnos (fecha futura)
           </p>
+          <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-zinc-300 text-zinc-800">
+            Vista profesor
+          </span>
         </div>
-        <div className="p-4">
-          <span className="font-semibold text-gray-900 text-sm">{session.nombre}</span>
+        <div className="p-5">
+          <span className="font-bold text-zinc-900 text-base">{session.nombre}</span>
           {session.fecha_liberacion && (
-            <p className="text-xs text-gray-400 mt-1">
-              Se libera el {formatDate(session.fecha_liberacion)}
+            <p className="text-xs text-zinc-500 mt-2 flex items-center gap-1.5">
+              <Calendar className="w-3.5 h-3.5 text-zinc-400" />
+              Liberación: {formatDate(session.fecha_liberacion)}
             </p>
           )}
         </div>
@@ -88,15 +96,23 @@ function SessionCard({ session, isProfessor, isCourseOwner }: SessionCardProps) 
     );
   }
 
-  // Normal card
+  // Normal accessible card
   return (
     <Link
       href={href}
-      className="rounded-xl border border-gray-200 bg-white p-4 flex flex-col gap-1 hover:shadow-md hover:border-blue-200 transition-all block"
+      className="rounded-2xl border border-zinc-200 bg-white p-5 flex flex-col justify-between min-h-[120px] hover:shadow-md hover:border-zinc-400 transition-all block group"
     >
-      <span className="font-semibold text-gray-900 text-sm">{session.nombre}</span>
+      <div className="flex items-start justify-between">
+        <span className="font-bold text-zinc-900 text-base group-hover:text-zinc-700 transition-colors">
+          {session.nombre}
+        </span>
+        <span className="text-zinc-400 group-hover:text-zinc-900 transition-colors text-sm font-bold">
+          →
+        </span>
+      </div>
       {session.fecha_liberacion && (
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-zinc-500 mt-4 flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5 text-zinc-400" />
           {formatDate(session.fecha_liberacion)}
         </p>
       )}
@@ -118,12 +134,12 @@ export default async function CoursePage({
   } = await supabase.auth.getUser();
 
   // Fetch course + sessions + first activity per session
-  const { data: course } = await supabase
+  const { data: rawCourse } = await supabase
     .from('courses')
     .select(`
       id,
       nombre,
-      imagen_portada,
+      imagen_url,
       profesor_id,
       sessions (
         id,
@@ -138,103 +154,134 @@ export default async function CoursePage({
     `)
     .eq('id', id)
     .order('orden', { referencedTable: 'sessions', ascending: true })
-    .single();
+    .maybeSingle();
 
   // Get professor role
   let isProfessor = false;
-  let isCourseOwner = false;
 
   if (user) {
     const { data: profile } = await supabase
       .from('profiles')
       .select('rol')
       .eq('id', user.id)
-      .single();
+      .maybeSingle();
 
     isProfessor = profile?.rol === 'profesor';
-    isCourseOwner = isProfessor && course?.profesor_id === user.id;
   }
 
-  if (!course) {
+  if (!rawCourse) {
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-400">
-        Curso no encontrado.
+      <div className="min-h-screen bg-zinc-50">
+        <NavBar />
+        <div className="max-w-xl mx-auto py-24 text-center">
+          <h2 className="text-2xl font-bold text-zinc-800">Curso no encontrado</h2>
+          <p className="text-sm text-zinc-500 mt-2">El curso solicitado no existe o fue eliminado.</p>
+          <Link
+            href="/"
+            className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            Volver al catálogo
+          </Link>
+        </div>
       </div>
     );
   }
 
+  const course = rawCourse as unknown as Course;
   const sessions: Session[] = (course.sessions as unknown as Session[]) ?? [];
   const claseSessions = sessions.filter((s) => s.tipo === 'clase');
   const repasoSessions = sessions.filter((s) => s.tipo === 'repaso');
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Breadcrumb */}
-      <div className="px-6 pt-5 pb-2 text-sm text-gray-500">
-        <Link href="/" className="hover:text-blue-600 transition-colors">
-          Inicio
-        </Link>
-        <span className="mx-2">/</span>
-        <span className="text-gray-700 font-medium">{course.nombre}</span>
-      </div>
+    <div className="min-h-screen bg-zinc-50 text-zinc-900">
+      <NavBar />
 
-      {/* Course Header */}
-      <div className="relative w-full max-h-48 overflow-hidden bg-gradient-to-br from-blue-400 to-purple-500">
-        {course.imagen_portada && (
+      {/* Course Banner Header */}
+      <div className="relative w-full h-56 sm:h-64 bg-zinc-900 overflow-hidden">
+        {course.imagen_url ? (
           <Image
-            src={course.imagen_portada}
+            src={course.imagen_url}
             alt={course.nombre}
-            width={1600}
-            height={384}
-            className="w-full max-h-48 object-cover"
+            fill
+            className="object-cover opacity-60"
           />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-950" />
         )}
-        <div className="absolute inset-0 bg-black/40 flex items-end px-8 pb-5">
-          <h1 className="text-white text-3xl font-bold drop-shadow">{course.nombre}</h1>
+        <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-900/30 to-transparent flex items-end">
+          <div className="max-w-5xl w-full mx-auto px-6 pb-8">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-300 hover:text-white transition-colors mb-3"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Cursos
+            </Link>
+            <h1 className="text-white text-3xl sm:text-4xl font-black tracking-tight">{course.nombre}</h1>
+          </div>
         </div>
       </div>
 
-      {/* Sessions */}
-      <main className="max-w-5xl mx-auto px-6 py-10 space-y-10">
+      {/* Sessions Content */}
+      <main className="max-w-5xl mx-auto px-6 py-10 space-y-12">
         {/* Actividades en clase */}
-        {claseSessions.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Actividades en clase</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <section>
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-900">Actividades en clase</h2>
+              <p className="text-xs text-zinc-500">Sesiones prácticas programadas para el aula</p>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-800">
+              {claseSessions.length} {claseSessions.length === 1 ? 'sesión' : 'sesiones'}
+            </span>
+          </div>
+
+          {claseSessions.length === 0 ? (
+            <div className="p-8 rounded-2xl border border-dashed border-zinc-300 bg-white text-center text-sm text-zinc-500">
+              No hay actividades en clase programadas para este curso todavía.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {claseSessions.map((session) => (
                 <SessionCard
                   key={session.id}
                   session={session}
                   isProfessor={isProfessor}
-                  isCourseOwner={isCourseOwner}
                 />
               ))}
             </div>
-          </section>
-        )}
+          )}
+        </section>
 
         {/* Actividades de repaso */}
-        {repasoSessions.length > 0 && (
-          <section>
-            <h2 className="text-xl font-bold text-gray-800 mb-4">Actividades de repaso</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+        <section>
+          <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">
+            <div>
+              <h2 className="text-xl font-bold text-zinc-900">Actividades de repaso</h2>
+              <p className="text-xs text-zinc-500">Práctica autónoma y refuerzo de conceptos</p>
+            </div>
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-800">
+              {repasoSessions.length} {repasoSessions.length === 1 ? 'sesión' : 'sesiones'}
+            </span>
+          </div>
+
+          {repasoSessions.length === 0 ? (
+            <div className="p-8 rounded-2xl border border-dashed border-zinc-300 bg-white text-center text-sm text-zinc-500">
+              No hay actividades de repaso registradas en este curso.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {repasoSessions.map((session) => (
                 <SessionCard
                   key={session.id}
                   session={session}
                   isProfessor={isProfessor}
-                  isCourseOwner={isCourseOwner}
                 />
               ))}
             </div>
-          </section>
-        )}
-
-        {claseSessions.length === 0 && repasoSessions.length === 0 && (
-          <p className="text-gray-400 text-center py-16">
-            Este curso aún no tiene sesiones disponibles.
-          </p>
-        )}
+          )}
+        </section>
       </main>
     </div>
   );

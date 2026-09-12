@@ -76,30 +76,30 @@ export default async function ProfesorActividadPage({
       <header className="border-b border-gray-200 bg-white px-6 py-4">
         <div className="mx-auto max-w-5xl">
           {/* Breadcrumb */}
-          <nav className="flex flex-wrap items-center gap-1 text-sm text-gray-500">
-            <Link href="/profesor" className="hover:text-blue-600 transition-colors">
+          <nav className="flex flex-wrap items-center gap-1 text-sm text-zinc-500">
+            <Link href="/profesor" className="hover:text-zinc-900 transition-colors">
               Mis cursos
             </Link>
-            <ChevronRight className="h-4 w-4 text-gray-400" />
+            <ChevronRight className="h-4 w-4 text-zinc-400" />
             <Link
               href={`/profesor/curso/${course.id}`}
-              className="hover:text-blue-600 transition-colors truncate max-w-[160px]"
+              className="hover:text-zinc-900 transition-colors truncate max-w-[160px]"
             >
               {course.nombre}
             </Link>
-            <ChevronRight className="h-4 w-4 text-gray-400" />
-            <span className="truncate max-w-[160px] text-gray-700">
+            <ChevronRight className="h-4 w-4 text-zinc-400" />
+            <span className="truncate max-w-[160px] text-zinc-700">
               {session.nombre}
             </span>
           </nav>
-          <h1 className="mt-1 text-xl font-bold text-gray-900">
+          <h1 className="mt-1 text-xl font-bold text-zinc-900">
             {activityData.titulo}
           </h1>
         </div>
       </header>
 
       {/* Horizontal scrollable nav chips */}
-      <div className="border-b border-gray-200 bg-white">
+      <div className="border-b border-zinc-200 bg-white">
         <div className="mx-auto max-w-5xl px-6">
           <div className="flex gap-2 overflow-x-auto py-3 scrollbar-none">
             {navActivities.map((act, index) => {
@@ -110,8 +110,8 @@ export default async function ProfesorActividadPage({
                   href={`/profesor/actividad/${act.id}`}
                   className={`shrink-0 rounded-full px-4 py-1.5 text-sm font-medium transition ${
                     isActive
-                      ? 'bg-blue-600 text-white shadow-sm'
-                      : 'border border-gray-200 bg-white text-gray-600 hover:border-blue-300 hover:text-blue-600'
+                      ? 'bg-zinc-900 text-white shadow-sm'
+                      : 'border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900'
                   }`}
                 >
                   Actividad {index + 1}

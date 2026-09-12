@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import { memo } from 'react'
 import { Handle, Position, NodeProps } from 'reactflow'
 import { cn } from '@/lib/utils'
@@ -10,8 +10,8 @@ export type CodeBlockData = {
 }
 
 const borderByState: Record<CodeBlockData['state'], string> = {
-  idle: 'border-gray-300',
-  connected: 'border-blue-400',
+  idle: 'border-zinc-300',
+  connected: 'border-zinc-800 shadow-sm',
   correct: 'border-green-500',
   error: 'border-red-500',
 }
@@ -24,7 +24,7 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
       className={cn(
         'relative rounded-lg border shadow-sm bg-white min-w-[180px] max-w-[400px] transition-all duration-200',
         borderByState[state],
-        selected && 'ring-2 ring-blue-300 ring-offset-1',
+        selected && 'ring-2 ring-zinc-400 ring-offset-1',
       )}
     >
       {/* Error flash overlay */}

@@ -22,7 +22,7 @@ export default function SessionCreateTrigger({ cursoId, tipo }: Props) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-300 bg-white py-4 text-gray-400 transition hover:border-blue-400 hover:text-blue-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+        className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-zinc-300 bg-white py-4 text-zinc-400 transition hover:border-zinc-800 hover:text-zinc-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-800 cursor-pointer"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-dashed border-current">
           <Plus className="h-4 w-4" />

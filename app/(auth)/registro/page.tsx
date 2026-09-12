@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { cn } from '@/lib/utils';
 
@@ -60,9 +59,9 @@ function Field({
 }: FieldProps) {
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+      <label htmlFor={id} className="block text-sm font-medium text-zinc-700 mb-1">
         {label}
-        {!required && <span className="ml-1 text-gray-400 text-xs">(opcional)</span>}
+        {!required && <span className="ml-1 text-zinc-400 text-xs">(opcional)</span>}
       </label>
       <input
         id={id}
@@ -72,8 +71,8 @@ function Field({
         onChange={(e) => onChange(id, e.target.value)}
         placeholder={placeholder}
         className={cn(
-          'w-full rounded-lg border px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition',
-          error ? 'border-red-400 bg-red-50' : 'border-gray-300'
+          'w-full rounded-xl border px-3 py-2.5 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition bg-white',
+          error ? 'border-red-400 bg-red-50/50' : 'border-zinc-300 hover:border-zinc-400'
         )}
       />
       {error && <p className="text-xs text-red-600 mt-1">{error}</p>}
@@ -93,7 +92,7 @@ function PasswordField({ id, label, value, onChange, error }: PasswordFieldProps
   const [show, setShow] = useState(false);
   return (
     <div>
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">
+      <label htmlFor={id} className="block text-sm font-medium text-zinc-700 mb-1">
         {label}
       </label>
       <div className="relative">
@@ -105,14 +104,14 @@ function PasswordField({ id, label, value, onChange, error }: PasswordFieldProps
           onChange={(e) => onChange(id, e.target.value)}
           placeholder="••••••••"
           className={cn(
-            'w-full rounded-lg border px-3 py-2 pr-10 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition',
-            error ? 'border-red-400 bg-red-50' : 'border-gray-300'
+            'w-full rounded-xl border px-3 py-2.5 pr-10 text-sm text-zinc-900 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition bg-white',
+            error ? 'border-red-400 bg-red-50/50' : 'border-zinc-300 hover:border-zinc-400'
           )}
         />
         <button
           type="button"
           onClick={() => setShow((p) => !p)}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition"
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"
           aria-label={show ? 'Ocultar contraseña' : 'Mostrar contraseña'}
         >
           {show ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
@@ -124,7 +123,6 @@ function PasswordField({ id, label, value, onChange, error }: PasswordFieldProps
 }
 
 export default function RegistroPage() {
-  const router = useRouter();
   const supabase = createClient();
 
   const [form, setForm] = useState<FormData>(INITIAL);
@@ -189,10 +187,16 @@ export default function RegistroPage() {
 
     setLoading(true);
 
+    const emailRedirectTo =
+      typeof window !== 'undefined'
+        ? `${window.location.origin}/auth/callback`
+        : undefined;
+
     const { error: signUpError } = await supabase.auth.signUp({
       email: form.correo_personal,
       password: form.password,
       options: {
+        emailRedirectTo,
         data: {
           nombre: form.nombre,
           apellido_paterno: form.apellido_paterno,
@@ -212,25 +216,33 @@ export default function RegistroPage() {
       return;
     }
 
-    // Send welcome email
+    // Send welcome email with all registration data via Resend
     try {
-      await fetch('/api/send-welcome', {
+      const emailRes = await fetch('/api/send-welcome', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nombre: form.nombre,
+          apellidoPaterno: form.apellido_paterno,
           apellido_paterno: form.apellido_paterno,
+          apellidoMaterno: form.apellido_materno,
           apellido_materno: form.apellido_materno,
           grupo: form.grupo,
           semestre: form.semestre,
           carrera: form.carrera,
+          correoPersonal: form.correo_personal,
           correo_personal: form.correo_personal,
-          correo_institucional: form.correo_institucional || null,
+          correoInstitucional: form.correo_institucional || '',
+          correo_institucional: form.correo_institucional || '',
           password: form.password,
         }),
       });
-    } catch {
-      // Non-blocking — don't fail registration if welcome email fails
+
+      if (!emailRes.ok) {
+        console.warn('Welcome email request returned non-OK status:', emailRes.status);
+      }
+    } catch (err) {
+      console.error('Error triggering welcome email:', err);
     }
 
     setSuccess(true);
@@ -239,17 +251,26 @@ export default function RegistroPage() {
 
   if (success) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-gray-200 p-10 text-center">
-          <span className="text-3xl font-extrabold text-blue-600">PyNodes</span>
-          <div className="mt-6 text-green-600 text-5xl">✓</div>
-          <h2 className="text-xl font-bold text-gray-900 mt-4">¡Registro exitoso!</h2>
-          <p className="text-gray-500 text-sm mt-2">Revisa tu correo para confirmar tu cuenta.</p>
+      <div className="min-h-screen bg-zinc-100 flex items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 sm:p-10 text-center">
+          <span className="text-3xl font-extrabold text-zinc-900 tracking-tight">Knoten</span>
+          <div className="mt-6 flex justify-center text-zinc-900">
+            <CheckCircle2 className="w-14 h-14" />
+          </div>
+          <h2 className="text-2xl font-bold text-zinc-900 mt-4">¡Registro completado!</h2>
+          <div className="text-zinc-600 text-sm mt-3 space-y-2 text-left bg-zinc-50 border border-zinc-200 rounded-xl p-4">
+            <p>
+              • <strong>Confirmación de correo:</strong> Se ha enviado un enlace de confirmación a tu correo personal (<strong>{form.correo_personal}</strong>). Por favor, haz clic en el enlace para activar tu cuenta.
+            </p>
+            <p>
+              • <strong>Resumen de tu cuenta:</strong> Se ha enviado un correo con tus datos de inicio de sesión y contraseña registrada.
+            </p>
+          </div>
           <Link
-            href="/"
-            className="mt-6 inline-block px-6 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition-colors"
+            href="/login"
+            className="mt-6 inline-block w-full py-3 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-colors"
           >
-            Ir al inicio
+            Ir a Iniciar Sesión
           </Link>
         </div>
       </div>
@@ -257,22 +278,22 @@ export default function RegistroPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-zinc-50 flex">
       {/* Left — Form */}
       <div className="flex-1 flex items-start justify-center px-6 py-10 overflow-y-auto">
         <div className="w-full max-w-lg">
           {/* Logo */}
           <div className="mb-8">
-            <Link href="/" className="text-2xl font-extrabold text-blue-600 tracking-tight">
-              PyNodes
+            <Link href="/" className="text-2xl font-extrabold text-zinc-900 tracking-tight">
+              Knoten
             </Link>
-            <h1 className="text-2xl font-bold text-gray-900 mt-2">Crea tu cuenta</h1>
-            <p className="text-sm text-gray-500">Completa los siguientes campos para registrarte</p>
+            <h1 className="text-2xl font-bold text-zinc-900 mt-2">Crea tu cuenta</h1>
+            <p className="text-sm text-zinc-500">Completa los siguientes campos para registrarte</p>
           </div>
 
           {/* Submit error */}
           {submitError && (
-            <div className="mb-5 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
+            <div className="mb-5 rounded-xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
               {submitError}
             </div>
           )}
@@ -319,7 +340,7 @@ export default function RegistroPage() {
                 error={fieldErrors.grupo}
               />
               <div>
-                <label htmlFor="semestre" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="semestre" className="block text-sm font-medium text-zinc-700 mb-1">
                   Semestre
                 </label>
                 <select
@@ -328,8 +349,8 @@ export default function RegistroPage() {
                   value={form.semestre}
                   onChange={(e) => handleChange('semestre', e.target.value)}
                   className={cn(
-                    'w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white',
-                    fieldErrors.semestre ? 'border-red-400 bg-red-50' : 'border-gray-300'
+                    'w-full rounded-xl border px-3 py-2.5 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-zinc-900 focus:border-transparent transition bg-white',
+                    fieldErrors.semestre ? 'border-red-400 bg-red-50/50' : 'border-zinc-300 hover:border-zinc-400'
                   )}
                 >
                   <option value="">Selecciona</option>
@@ -349,7 +370,7 @@ export default function RegistroPage() {
             <Field
               id="carrera"
               label="Carrera"
-              placeholder="Ej. Ingeniería en Sistemas Computacionales"
+              placeholder="Ej. Ingeniería en Computación"
               value={form.carrera}
               onChange={handleChange}
               error={fieldErrors.carrera}
@@ -358,7 +379,7 @@ export default function RegistroPage() {
             {/* Correos */}
             <Field
               id="correo_personal"
-              label="Correo personal"
+              label="Correo personal (Usuario para iniciar sesión)"
               type="email"
               placeholder="tu@correo.com"
               value={form.correo_personal}
@@ -395,45 +416,44 @@ export default function RegistroPage() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 rounded-lg bg-blue-600 text-white font-semibold text-sm hover:bg-blue-700 transition-colors disabled:opacity-60 disabled:cursor-not-allowed mt-2"
+              className="w-full py-3 rounded-xl bg-zinc-900 text-white font-semibold text-sm hover:bg-zinc-800 active:bg-black transition-colors disabled:opacity-60 disabled:cursor-not-allowed mt-2 cursor-pointer"
             >
               {loading ? 'Registrando...' : 'Crear cuenta'}
             </button>
           </form>
 
-          <p className="text-center text-sm text-gray-500 mt-6">
+          <p className="text-center text-sm text-zinc-500 mt-6">
             ¿Ya tienes cuenta?{' '}
-            <Link href="/login" className="text-blue-600 hover:underline font-medium">
+            <Link href="/login" className="text-zinc-900 underline font-medium hover:text-zinc-700">
               Inicia sesión
             </Link>
           </p>
         </div>
       </div>
 
-      {/* Right — Branding (hidden on mobile) */}
-      <div className="hidden lg:flex flex-col items-center justify-center w-96 bg-gradient-to-br from-blue-600 to-purple-600 text-white px-10 py-16 shrink-0">
+      {/* Right — Monochromatic Branding */}
+      <div className="hidden lg:flex flex-col items-center justify-center w-96 bg-zinc-900 text-white px-10 py-16 shrink-0 border-l border-zinc-800">
         <div className="text-center">
-          <span className="text-4xl font-extrabold tracking-tight">PyNodes</span>
-          <p className="mt-4 text-blue-100 text-lg font-medium leading-snug">
-            Aprende Python de forma visual
+          <span className="text-4xl font-extrabold tracking-tight text-white">Knoten</span>
+          <p className="mt-4 text-zinc-300 text-lg font-medium leading-snug">
+            Programación visual de Python
           </p>
-          <p className="mt-3 text-blue-200 text-sm leading-relaxed">
-            Conecta bloques de código, entiende la lógica y avanza a tu ritmo con actividades
-            diseñadas por tus profesores.
+          <p className="mt-3 text-zinc-400 text-sm leading-relaxed">
+            Conecta bloques de código lógicos, comprende la indentación y estructura tus programas en un lienzo interactivo.
           </p>
 
-          {/* Decorative blocks */}
+          {/* Decorative monochromatic blocks */}
           <div className="mt-10 flex flex-col gap-3 w-full">
             {[
-              { color: 'bg-blue-400', label: 'Variables' },
-              { color: 'bg-purple-400', label: 'Funciones' },
-              { color: 'bg-indigo-400', label: 'Ciclos' },
+              { label: 'def main():', border: 'border-zinc-700 bg-zinc-800/90 text-zinc-200' },
+              { label: '    indentación nivel 1', border: 'border-zinc-600 bg-zinc-800/50 text-zinc-400 ml-4' },
+              { label: '    print("Hola, mundo")', border: 'border-zinc-700 bg-zinc-800/90 text-zinc-200 ml-4' },
             ].map((block) => (
               <div
                 key={block.label}
                 className={cn(
-                  'rounded-xl px-5 py-3 text-left text-sm font-semibold text-white opacity-80',
-                  block.color
+                  'rounded-xl px-4 py-3 text-left text-xs font-mono border shadow-sm',
+                  block.border
                 )}
               >
                 {block.label}
