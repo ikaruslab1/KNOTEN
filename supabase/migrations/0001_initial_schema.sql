@@ -1,4 +1,4 @@
-﻿-- ============================================================
+-- ============================================================
 -- 0001_initial_schema.sql
 -- Initial schema for pynodes – Next.js + Supabase project
 -- ============================================================
@@ -164,17 +164,29 @@ ALTER TABLE progress     ENABLE ROW LEVEL SECURITY;
 -- 5. RLS POLICIES
 -- ============================================================
 
+-- Helper function to check if current user is professor without causing RLS recursion
+CREATE OR REPLACE FUNCTION public.is_profesor()
+RETURNS boolean
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.profiles
+    WHERE id = auth.uid() AND rol = 'profesor'
+  );
+$$;
+
 -- ── profiles ────────────────────────────────────────────────
--- SELECT: own row OR viewer is a profesor
+-- SELECT: own row OR professor profile OR viewer is a profesor
 CREATE POLICY "profiles_select"
   ON profiles FOR SELECT
-  TO authenticated
+  TO public
   USING (
     id = auth.uid()
-    OR EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = auth.uid() AND p.rol = 'profesor'
-    )
+    OR rol = 'profesor'
+    OR is_profesor()
   );
 
 -- UPDATE: own row only
@@ -196,10 +208,7 @@ CREATE POLICY "courses_insert_profesor"
   TO authenticated
   WITH CHECK (
     profesor_id = auth.uid()
-    AND EXISTS (
-      SELECT 1 FROM profiles p
-      WHERE p.id = auth.uid() AND p.rol = 'profesor'
-    )
+    AND is_profesor()
   );
 
 -- UPDATE: course owner

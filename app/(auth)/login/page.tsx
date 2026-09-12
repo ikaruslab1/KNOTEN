@@ -4,7 +4,8 @@ import { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
-import { Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { Eye, EyeOff, CheckCircle2, User } from 'lucide-react';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 function LoginForm() {
   const searchParams = useSearchParams();
@@ -15,18 +16,22 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [currentUser, setCurrentUser] = useState<SupabaseUser | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
 
   const isConfirmed = searchParams.get('confirmed') === 'true';
 
   useEffect(() => {
-    // If already logged in, redirect
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        const next = searchParams.get('next') ?? '/';
-        window.location.href = next;
-      }
+      setCurrentUser(user);
+      setCheckingSession(false);
     });
-  }, [searchParams, supabase]);
+  }, [supabase]);
+
+  async function handleSignOut() {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,6 +62,44 @@ function LoginForm() {
     } else {
       setLoading(false);
     }
+  }
+
+  if (checkingSession) {
+    return (
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 text-center animate-pulse">
+        <div className="h-6 w-32 bg-zinc-200 rounded mx-auto mb-4" />
+        <div className="h-4 w-48 bg-zinc-100 rounded mx-auto" />
+      </div>
+    );
+  }
+
+  if (currentUser) {
+    return (
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-sm border border-zinc-200 p-8 sm:p-10 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-zinc-100 border border-zinc-200 flex items-center justify-center mx-auto mb-4 text-zinc-900">
+          <User size={28} />
+        </div>
+        <h2 className="text-xl font-bold text-zinc-900 mb-1">Sesión activa</h2>
+        <p className="text-sm text-zinc-600 mb-6">
+          Has iniciado sesión con la cuenta <strong className="text-zinc-900 block mt-0.5">{currentUser.email}</strong>
+        </p>
+        <div className="space-y-3">
+          <Link
+            href={searchParams.get('next') ?? '/'}
+            className="block w-full py-3 rounded-xl bg-zinc-900 text-white font-semibold text-sm hover:bg-zinc-800 active:bg-black transition-colors shadow-sm"
+          >
+            Continuar al inicio
+          </Link>
+          <button
+            type="button"
+            onClick={handleSignOut}
+            className="block w-full py-2.5 rounded-xl border border-zinc-200 text-zinc-700 font-medium text-sm hover:bg-zinc-50 transition-colors cursor-pointer"
+          >
+            Cerrar sesión o cambiar de cuenta
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

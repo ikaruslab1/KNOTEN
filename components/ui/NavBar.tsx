@@ -32,9 +32,9 @@ export async function NavBar() {
 
           {/* Nav actions */}
           <div className="flex items-center gap-3">
-            {user && profile ? (
+            {user ? (
               <>
-                {profile.rol === 'profesor' && (
+                {profile?.rol === 'profesor' && (
                   <Link
                     href="/profesor"
                     className="text-sm font-medium text-zinc-700 hover:text-zinc-900 px-3 py-1.5 rounded-lg hover:bg-zinc-100 transition-colors"
@@ -45,10 +45,12 @@ export async function NavBar() {
                 <div className="flex items-center gap-2 bg-zinc-100 border border-zinc-200 rounded-xl px-3 py-1.5">
                   <User size={15} className="text-zinc-600" />
                   <span className="text-sm text-zinc-900 font-medium">
-                    {profile.nombre} {profile.apellido_paterno}
+                    {profile?.nombre
+                      ? `${profile.nombre} ${profile.apellido_paterno || ''}`.trim()
+                      : user.email}
                   </span>
                   <span className="text-[11px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-zinc-200 text-zinc-700">
-                    {profile.rol}
+                    {profile?.rol || 'estudiante'}
                   </span>
                 </div>
                 <form action="/api/auth/signout" method="POST">

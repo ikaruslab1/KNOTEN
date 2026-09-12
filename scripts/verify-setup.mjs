@@ -18,7 +18,7 @@ async function test() {
     console.log('Anon courses query OK. Courses count:', courses.length)
   }
 
-  // Test profiles table
+  // Test profiles table with admin client
   const { data: profiles, error: err2 } = await supabaseAdmin.from('profiles').select('*')
   if (err2) {
     console.error('Admin profiles query failed:', err2)
@@ -26,7 +26,15 @@ async function test() {
     console.log('Admin profiles query OK. Profiles count:', profiles.length)
   }
 
-  console.log('All Supabase checks passed!')
+  // Test public read on professor profiles
+  const { data: profs, error: err3 } = await supabaseAnon.from('profiles').select('id, nombre, apellido_paterno, rol').eq('rol', 'profesor')
+  if (err3) {
+    console.error('Anon professor profiles query failed:', err3)
+  } else {
+    console.log('Anon professor profiles query OK. Count:', profs.length)
+  }
+
+  console.log('All Supabase checks finished!')
 }
 
 test()
