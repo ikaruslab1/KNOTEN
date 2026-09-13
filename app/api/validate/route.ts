@@ -122,18 +122,14 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 2. Authenticate user ───────────────────────────────────────────────
-  const supabaseUser = await getServerClient()
-  const {
-    data: { user },
-    error: authError,
-  } = await supabaseUser.auth.getUser()
-
-  if (authError || !user) {
-    return NextResponse.json(
-      { success: false, message: 'No autenticado.' },
-      { status: 401 },
-    )
+  // ── 2. Authenticate user (optional) ───────────────────────────────────
+  let user: { id: string } | null = null
+  try {
+    const supabaseUser = await getServerClient()
+    const { data } = await supabaseUser.auth.getUser()
+    user = data?.user ?? null
+  } catch {
+    user = null
   }
 
   const adminClient = getAdminClient()
@@ -243,7 +239,7 @@ export async function POST(request: NextRequest) {
   const sessionTipo = (activityData?.sessions as any)?.tipo
   const isClaseActivity = sessionTipo === 'clase'
 
-  if (!isClaseActivity) {
+  if (!isClaseActivity && user) {
     const { data: existingProgress } = await adminClient
       .from('progress')
       .select('intentos, completado')

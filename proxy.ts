@@ -12,18 +12,13 @@ export async function proxy(request: NextRequest) {
 
   // If there is no auth cookie at all:
   if (!hasAuthCookie) {
-    // Protected routes: redirect immediately without hitting Supabase network
+    // Only /profesor requires authentication
     if (pathname.startsWith('/profesor')) {
       const redirectUrl = request.nextUrl.clone()
       redirectUrl.pathname = '/'
       return NextResponse.redirect(redirectUrl)
     }
-    if (pathname.startsWith('/actividad')) {
-      const redirectUrl = request.nextUrl.clone()
-      redirectUrl.pathname = '/login'
-      return NextResponse.redirect(redirectUrl)
-    }
-    // Public routes: pass through immediately in 0ms
+    // Public routes (/actividad, /curso, /, etc.): pass through immediately
     return NextResponse.next({ request })
   }
 
@@ -62,13 +57,6 @@ export async function proxy(request: NextRequest) {
   if (pathname.startsWith('/profesor') && !user) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/'
-    return NextResponse.redirect(redirectUrl)
-  }
-
-  // Protected: /actividad/*
-  if (pathname.startsWith('/actividad') && !user) {
-    const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/login'
     return NextResponse.redirect(redirectUrl)
   }
 
