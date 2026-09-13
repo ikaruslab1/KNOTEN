@@ -18,12 +18,59 @@ body {
 
 /* React Flow custom handle styles */
 .react-flow__handle {
-  width: 12px !important;
-  height: 12px !important;
-  background: #9CA3AF !important;
+  width: 13px !important;
+  height: 13px !important;
+  background: #71717a !important;
   border: 2px solid #ffffff !important;
+  border-radius: 9999px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  transition: transform 0.15s ease, background-color 0.15s ease !important;
+  cursor: crosshair !important;
+  z-index: 20 !important;
 }
 
 .react-flow__handle:hover {
   background: #18181b !important;
+  transform: translateY(-50%) scale(1.2) !important;
 }
+
+/* Position handles strictly outside the container boundaries on desktop */
+.react-flow__handle-left {
+  left: -8px !important;
+  transform: translateY(-50%) !important;
+}
+
+.react-flow__handle-right {
+  right: -8px !important;
+  transform: translateY(-50%) !important;
+}
+
+/* LineRailNode line handles (high contrast dark) */
+.react-flow__handle[id^="line-"] {
+  background: #18181b !important;
+}
+
+/* Mobile: significantly larger touch target and pushed further outside the card */
+@media (max-width: 640px) {
+  .react-flow__handle {
+    width: 22px !important;
+    height: 22px !important;
+    border-width: 2.5px !important;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important;
+  }
+
+  .react-flow__handle:hover {
+    transform: translateY(-50%) scale(1.1) !important;
+  }
+
+  .react-flow__handle-left {
+    left: -15px !important;
+    transform: translateY(-50%) !important;
+  }
+
+  .react-flow__handle-right {
+    right: -15px !important;
+    transform: translateY(-50%) !important;
+  }
+}
+

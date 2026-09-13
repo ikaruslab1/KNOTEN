@@ -118,6 +118,37 @@ export async function syncOfflineContent(): Promise<SyncResult> {
     await saveSessions(incomingSessions)
     await saveActivities(incomingActivities)
 
+    // Pre-cache activity URLs and shells in Cache API for instant offline navigation
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      try {
+        const cache = await window.caches.open('knoten-cache-v2')
+
+        // Precache courses
+        for (const c of incomingCourses) {
+          try {
+            const courseRes = await fetch(`/curso/${c.id}`)
+            if (courseRes.ok) {
+              await cache.put(`/curso/${c.id}`, courseRes.clone())
+              await cache.put('/curso-shell', courseRes.clone())
+            }
+          } catch {}
+        }
+
+        // Precache activities and create generic /actividad-shell
+        for (const act of incomingActivities) {
+          try {
+            const actRes = await fetch(`/actividad/${act.id}`)
+            if (actRes.ok) {
+              await cache.put(`/actividad/${act.id}`, actRes.clone())
+              await cache.put('/actividad-shell', actRes.clone())
+            }
+          } catch {}
+        }
+      } catch (e) {
+        console.warn('Error during offline page pre-caching:', e)
+      }
+    }
+
     const finalStats = await getOfflineDatabaseStats()
 
     if (!isFirstTimeSync) {

@@ -42,16 +42,11 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         style={{
           top: '50%',
           transform: 'translateY(-50%)',
-          width: 12,
-          height: 12,
-          background: '#9CA3AF',
-          border: '2px solid #fff',
-          borderRadius: '50%',
         }}
       />
 
       {/* Content */}
-      <div className="px-3 py-2 flex items-center justify-center">
+      <div className="px-3.5 py-2.5 sm:px-3 sm:py-2 flex items-center justify-center">
         <pre className="text-sm font-mono text-zinc-900 whitespace-pre">
           <code>{code}</code>
         </pre>
@@ -64,11 +59,6 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         style={{
           top: '50%',
           transform: 'translateY(-50%)',
-          width: 12,
-          height: 12,
-          background: '#9CA3AF',
-          border: '2px solid #fff',
-          borderRadius: '50%',
         }}
       />
     </div>

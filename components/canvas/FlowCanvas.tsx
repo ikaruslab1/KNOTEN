@@ -32,7 +32,7 @@ import LineRailNode from "./LineRailNode"
 import Toolbar from "./Toolbar"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
-import { reconstructCodeFromCanvas } from "@/lib/code-reconstructor"
+import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
 import { saveActivity } from "@/lib/offline/db"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -629,6 +629,112 @@ function FlowCanvasInner({
     const studentBlockOrder = getStudentBlockOrder(edges, nodes)
     const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
 
+    // Local offline validation fallback if disconnected from internet
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      const codeBlocks = blocks.filter((b) => b.tipo !== 'sticker')
+      const correctBlockIds = [...codeBlocks]
+        .sort((a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0))
+        .map((b) => b.id)
+      const correctCode = reconstructCodeFromBlocks(
+        blocks.map((b, idx) => ({
+          ...b,
+          orden_correcto: b.orden_correcto ?? idx,
+        }))
+      )
+
+      const normalizedReconstructed = (reconstructedCode || '').trim().replace(/\r\n/g, '\n')
+      const normalizedCorrect = (correctCode || '').trim().replace(/\r\n/g, '\n')
+
+      const codeMatches =
+        normalizedReconstructed.length > 0 &&
+        (normalizedReconstructed === normalizedCorrect ||
+          normalizedReconstructed.replace(/\s+/g, '') === normalizedCorrect.replace(/\s+/g, ''))
+
+      const orderMatches =
+        correctBlockIds.length > 0 &&
+        studentBlockOrder.length === correctBlockIds.length &&
+        studentBlockOrder.every((id, idx) => id === correctBlockIds[idx])
+
+      const studentConnSet = new Set(
+        studentConnections.map((c) => `${c.sourceBlockId}->${c.targetBlockId}`)
+      )
+      const connMatches =
+        connections.length > 0 &&
+        studentConnections.length === connections.length &&
+        connections.every((c) =>
+          studentConnSet.has(`${c.source_block_id}->${c.target_block_id}`)
+        )
+
+      const isOfflineSuccess = codeMatches || orderMatches || connMatches
+
+      if (isOfflineSuccess) {
+        setTerminalStatus("success")
+        const outputLines = resultadoEsperado
+          ? resultadoEsperado.split("\n")
+          : ["Código ejecutado exitosamente sin errores (Modo offline)."]
+        setTerminalLines(outputLines)
+
+        setEdges((eds) =>
+          eds.map((e) => ({
+            ...e,
+            data: { ...e.data, success: true, error: false, animating: false },
+            style: { stroke: "#22c55e", strokeWidth: 2 },
+          }))
+        )
+
+        setNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            draggable: false,
+            data: { ...n.data, state: "success", readOnly: true },
+          }))
+        )
+
+        setCompletedMap((prev) => {
+          const updated = { ...prev, [activityId]: true }
+          try {
+            localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
+          } catch (e) {
+            console.error("Error saving completed activities to localStorage", e)
+          }
+          return updated
+        })
+
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 },
+        })
+        return
+      } else {
+        setTerminalStatus("error")
+        setTerminalLines([
+          "Error: la secuencia de bloques no es correcta.",
+          "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
+        ])
+
+        // Flash edges red + spring-back animation
+        setEdges((eds) =>
+          eds.map((e) => ({
+            ...e,
+            data: { ...e.data, error: true, animating: true, success: false },
+            style: { stroke: "#ef4444", strokeWidth: 2 },
+          }))
+        )
+
+        setTimeout(() => {
+          setEdges([])
+          setNodes((nds) =>
+            nds.map((n) => ({
+              ...n,
+              data: { ...n.data, state: "idle", readOnly: false },
+            }))
+          )
+        }, 1000)
+        return
+      }
+    }
+
     try {
       const res = await fetch("/api/validate", {
         method: "POST",
@@ -750,7 +856,7 @@ function FlowCanvasInner({
           isMobileNavFolded && "-translate-y-20 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto"
         )}
       >
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-[calc(100vw-50px)] sm:max-w-none">
+        <div className="flex items-center gap-1.5 py-0.5">
           <Link
             href={courseId ? `/curso/${courseId}` : '/'}
             className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 shadow-sm text-xs font-semibold transition shrink-0"
@@ -783,15 +889,23 @@ function FlowCanvasInner({
             </button>
 
             {selectorOpen && (
-              <div className="absolute top-full left-0 mt-1.5 w-64 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-zinc-200 py-2 z-50 overflow-hidden text-xs">
-                <div className="px-3 py-1.5 border-b border-zinc-100 text-[11px] font-medium text-zinc-400 flex items-center justify-between">
+              <div
+                className={cn(
+                  "bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border border-zinc-200 py-2.5 z-[70] overflow-hidden text-xs sm:text-sm animate-in fade-in zoom-in-95 duration-150",
+                  // Mobile and tablet: generous floating overlay positioned below top bar
+                  "fixed top-14 left-2.5 right-2.5 max-w-sm sm:max-w-md md:max-w-sm",
+                  // Desktop: attached directly below trigger button
+                  "lg:absolute lg:top-full lg:left-0 lg:right-auto lg:mt-1.5 lg:w-80"
+                )}
+              >
+                <div className="px-4 py-2 border-b border-zinc-100 text-xs font-semibold text-zinc-500 flex items-center justify-between">
                   <span className="truncate mr-2">{sessionName || "Actividades de la sesión"}</span>
-                  <span className="text-[10px] bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded shrink-0">
+                  <span className="text-[11px] bg-zinc-100 text-zinc-700 px-2 py-0.5 rounded-full font-mono shrink-0">
                     {activitiesList.filter((a) => completedMap[a.id]).length}/
                     {activitiesList.length}
                   </span>
                 </div>
-                <div className="max-h-60 overflow-y-auto py-1">
+                <div className="max-h-[65vh] sm:max-h-80 overflow-y-auto py-1 divide-y divide-zinc-50">
                   {activitiesList.map((act, idx) => {
                     const isCurrent = act.id === activityId
                     const isDone = Boolean(completedMap[act.id])
@@ -803,18 +917,18 @@ function FlowCanvasInner({
                       <div
                         key={act.id}
                         className={cn(
-                          "group flex items-center justify-between px-3 py-2 hover:bg-zinc-50 transition-colors",
-                          isCurrent && "bg-zinc-100/80 font-semibold text-zinc-950"
+                          "group flex items-center justify-between px-3.5 py-2.5 sm:py-2 hover:bg-zinc-50 transition-colors",
+                          isCurrent && "bg-zinc-100/90 font-semibold text-zinc-950"
                         )}
                       >
                         <Link
                           href={`/actividad/${act.id}`}
                           onClick={() => setSelectorOpen(false)}
-                          className="flex-1 flex items-center gap-2 text-zinc-700 hover:text-zinc-950 truncate mr-2"
+                          className="flex-1 flex items-center gap-2.5 text-zinc-700 hover:text-zinc-950 truncate mr-2"
                         >
                           <span
                             className={cn(
-                              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 font-medium",
+                              "w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 font-medium",
                               isCurrent
                                 ? "bg-zinc-900 text-white"
                                 : "bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200"
@@ -834,12 +948,12 @@ function FlowCanvasInner({
                               ? "Desmarcar como resuelta"
                               : "Marcar como resuelta"
                           }
-                          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/50 transition shrink-0"
+                          className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/60 transition shrink-0"
                         >
                           {isDone ? (
-                            <CheckCircle2 className="w-4 h-4 text-emerald-600 hover:text-emerald-700" />
+                            <CheckCircle2 className="w-5 h-5 text-emerald-600 hover:text-emerald-700" />
                           ) : (
-                            <Circle className="w-4 h-4 text-zinc-300 hover:text-zinc-500" />
+                            <Circle className="w-5 h-5 text-zinc-300 hover:text-zinc-500" />
                           )}
                         </button>
                       </div>

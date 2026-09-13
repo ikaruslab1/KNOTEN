@@ -76,11 +76,6 @@ const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
               style={{
                 top: '50%',
                 transform: 'translateY(-50%)',
-                width: 12,
-                height: 12,
-                background: '#71717a',
-                border: '2px solid #ffffff',
-                borderRadius: '50%',
               }}
             />
 
@@ -95,11 +90,6 @@ const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
               style={{
                 top: '50%',
                 transform: 'translateY(-50%)',
-                width: 12,
-                height: 12,
-                background: '#71717a',
-                border: '2px solid #ffffff',
-                borderRadius: '50%',
               }}
             />
           </div>

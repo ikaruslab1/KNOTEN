@@ -106,7 +106,7 @@ export default function Toolbar({
           // Desktop: centered at top
           'sm:top-4 sm:bottom-auto sm:left-1/2 sm:-translate-x-1/2',
           // Mobile: floating above bottom edge for thumb reach
-          'bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-20px)] overflow-x-auto no-scrollbar',
+          'bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-20px)]',
           // Mobile folded state
           isMobileFolded && 'translate-y-28 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto'
         )}
@@ -122,13 +122,19 @@ export default function Toolbar({
             <Smile size={17} />
           </IconBtn>
           {stickerOpen && (
-            <div className="absolute bottom-full mb-2 sm:bottom-auto sm:top-full sm:mt-2 left-1/2 -translate-x-1/2 bg-white/95 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-xl p-2 z-50 grid grid-cols-5 gap-1.5 min-w-[210px] animate-in fade-in zoom-in-95 duration-150">
+            <div
+              className={cn(
+                "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-2xl p-2.5 grid grid-cols-5 gap-1.5 w-[265px] animate-in fade-in zoom-in-95 duration-150",
+                "bottom-18 left-1/2 -translate-x-1/2",
+                "sm:bottom-auto sm:top-16 sm:left-1/2 sm:-translate-x-1/2"
+              )}
+            >
               {STICKERS.map(({ emoji, label }) => (
                 <button
                   key={emoji}
                   type="button"
                   onClick={() => handleSticker(emoji)}
-                  className="text-xl w-9 h-9 flex items-center justify-center rounded-xl hover:bg-zinc-100 hover:scale-110 active:scale-95 transition-all"
+                  className="text-2xl w-10 h-10 flex items-center justify-center rounded-xl hover:bg-zinc-100 hover:scale-110 active:scale-95 transition-all cursor-pointer"
                   title={label}
                 >
                   {emoji}

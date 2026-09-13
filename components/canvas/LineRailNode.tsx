@@ -83,24 +83,21 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
                 </span>
               </div>
 
-              {/* Right side: arrow indicator and connection handle */}
-              <div className="relative flex items-center pr-1">
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 mr-0.5" />
-                <Handle
-                  type="source"
-                  position={Position.Right}
-                  id={`line-${lineNum}`}
-                  style={{
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    width: 12,
-                    height: 12,
-                    background: '#18181b',
-                    border: '2px solid #ffffff',
-                    borderRadius: '50%',
-                  }}
-                />
+              {/* Right side: arrow indicator */}
+              <div className="flex items-center pr-2">
+                <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
               </div>
+
+              {/* Right handle positioned outside card border */}
+              <Handle
+                type="source"
+                position={Position.Right}
+                id={`line-${lineNum}`}
+                style={{
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                }}
+              />
             </div>
           )
         })}
