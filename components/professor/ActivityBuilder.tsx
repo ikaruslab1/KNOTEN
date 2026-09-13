@@ -31,12 +31,83 @@ type Props = {
 
 // ─── Helper: reconstruct Python code from blocks ──────────────────────────────
 
+function joinTokens(tokens: string[]): string {
+  let line = ''
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i]
+    const prev = i > 0 ? tokens[i - 1] : null
+
+    if (i === 0) {
+      line += t
+      continue
+    }
+
+    // No space before: ')', ']', '}', ':', ',', '.', ';'
+    if ([')', ']', '}', ':', ',', '.', ';'].includes(t)) {
+      line += t
+      continue
+    }
+
+    // No space after: '(', '[', '{', '.'
+    if (prev && ['(', '[', '{', '.'].includes(prev)) {
+      line += t
+      continue
+    }
+
+    // No space before '(' if preceded by an identifier (function call / definition)
+    if (t === '(' && prev && /^[a-zA-Z_]\w*$/.test(prev)) {
+      line += t
+      continue
+    }
+
+    line += ' ' + t
+  }
+  return line
+}
+
 function reconstructPythonCode(savedBlocks: SplitBlock[]): string {
   if (!savedBlocks || savedBlocks.length === 0) return ''
   const sorted = [...savedBlocks].sort((a, b) => a.orden_correcto - b.orden_correcto)
-  return sorted
-    .filter((b) => b.tipo === 'codigo')
-    .map((b) => ' '.repeat((b.indent_level ?? 0) * 4) + (b.contenido ?? ''))
+  const codeBlocks = sorted.filter((b) => b.tipo === 'codigo')
+  if (codeBlocks.length === 0) return ''
+
+  // Group by line: use line_index if available, or detect line change by posicion_y
+  const lines: { indent: number; tokens: string[] }[] = []
+  let currentTokens: string[] = []
+  let currentIndent = codeBlocks[0].indent_level ?? 0
+  const firstBlock = codeBlocks[0] as unknown as { line_index?: number; posicion_y?: number }
+  let currentLineKey =
+    firstBlock.line_index !== undefined
+      ? firstBlock.line_index
+      : firstBlock.posicion_y ?? 0
+
+  for (const b of codeBlocks) {
+    const bTyped = b as unknown as { line_index?: number; posicion_y?: number }
+    const blockLineKey =
+      bTyped.line_index !== undefined
+        ? bTyped.line_index
+        : bTyped.posicion_y !== undefined
+        ? bTyped.posicion_y
+        : null
+
+    const isNewLine = blockLineKey !== null && blockLineKey !== currentLineKey
+
+    if (isNewLine && currentTokens.length > 0) {
+      lines.push({ indent: currentIndent, tokens: currentTokens })
+      currentTokens = []
+      currentIndent = b.indent_level ?? 0
+      currentLineKey = blockLineKey
+    }
+
+    currentTokens.push(b.contenido ?? '')
+  }
+
+  if (currentTokens.length > 0) {
+    lines.push({ indent: currentIndent, tokens: currentTokens })
+  }
+
+  return lines
+    .map((l) => ' '.repeat(Math.max(0, l.indent) * 4) + joinTokens(l.tokens))
     .join('\n')
 }
 
@@ -156,8 +227,8 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
           activity_id: activityId,
           source_block_id: src.id,
           target_block_id: sorted[i + 1].id,
-          source_handle: 'bottom',
-          target_handle: 'top',
+          source_handle: null,
+          target_handle: null,
           orden: i,
         }))
 
@@ -522,6 +593,11 @@ function BlockCard({ block, index, total, onMove }: BlockCardProps) {
           >
             {isCodigo ? 'código' : 'indentación'}
           </span>
+          {block.line_index !== undefined && (
+            <span className="rounded-md bg-zinc-50 border border-zinc-200 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500">
+              línea {block.line_index + 1}
+            </span>
+          )}
           {block.indent_level > 0 && (
             <span className="text-xs text-gray-400">nivel {block.indent_level}</span>
           )}

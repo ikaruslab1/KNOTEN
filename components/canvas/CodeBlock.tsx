@@ -22,7 +22,7 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
   return (
     <div
       className={cn(
-        'relative rounded-lg border shadow-sm bg-white min-w-[180px] max-w-[400px] transition-all duration-200',
+        'relative rounded-lg border shadow-sm bg-white min-w-[56px] max-w-[400px] transition-all duration-200 select-none',
         borderByState[state],
         selected && 'ring-2 ring-zinc-400 ring-offset-1',
       )}
@@ -40,6 +40,8 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         type="target"
         position={Position.Left}
         style={{
+          top: '50%',
+          transform: 'translateY(-50%)',
           width: 12,
           height: 12,
           background: '#9CA3AF',
@@ -49,8 +51,8 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
       />
 
       {/* Content */}
-      <div className="px-4 py-3">
-        <pre className="text-sm font-mono text-gray-800 whitespace-pre">
+      <div className="px-3 py-2 flex items-center justify-center">
+        <pre className="text-sm font-mono text-zinc-900 whitespace-pre">
           <code>{code}</code>
         </pre>
       </div>
@@ -60,6 +62,8 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         type="source"
         position={Position.Right}
         style={{
+          top: '50%',
+          transform: 'translateY(-50%)',
           width: 12,
           height: 12,
           background: '#9CA3AF',

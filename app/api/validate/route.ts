@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
+import { executePythonCode } from '@/lib/python-executor'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -15,7 +16,8 @@ type StudentConnection = {
 type ValidateBody = {
   activityId: string
   studentConnections: StudentConnection[]
-  studentBlockOrder: string[]
+  studentBlockOrder?: string[]
+  reconstructedCode?: string
 }
 
 // ── Supabase clients ─────────────────────────────────────────────────────────
@@ -50,17 +52,37 @@ async function getServerClient() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/**
- * Normalise a connection so order-independent comparison is easy.
- * Connections are considered matching when source+target+handles all agree.
- */
-function normaliseConnection(c: StudentConnection): string {
-  return JSON.stringify({
-    s: c.sourceBlockId,
-    t: c.targetBlockId,
-    sh: c.sourceHandle ?? null,
-    th: c.targetHandle ?? null,
-  })
+function deriveBlockOrder(
+  connections: StudentConnection[],
+  correctBlockIds: string[],
+): string[] {
+  if (!connections || connections.length === 0) return []
+  const validIds = new Set(correctBlockIds)
+  const nextMap = new Map<string, string>()
+  const inDegree = new Map<string, number>()
+
+  for (const c of connections) {
+    if (validIds.has(c.sourceBlockId) && validIds.has(c.targetBlockId)) {
+      nextMap.set(c.sourceBlockId, c.targetBlockId)
+      inDegree.set(c.targetBlockId, (inDegree.get(c.targetBlockId) || 0) + 1)
+    }
+  }
+
+  const startId = correctBlockIds.find(
+    (id) => !inDegree.has(id) && nextMap.has(id),
+  )
+
+  const order: string[] = []
+  const visited = new Set<string>()
+  let curr = startId
+
+  while (curr && !visited.has(curr)) {
+    visited.add(curr)
+    order.push(curr)
+    curr = nextMap.get(curr)
+  }
+
+  return order
 }
 
 function connectionsMatch(
@@ -68,8 +90,8 @@ function connectionsMatch(
   correct: StudentConnection[],
 ): boolean {
   if (student.length !== correct.length) return false
-  const correctSet = new Set(correct.map(normaliseConnection))
-  return student.every((c) => correctSet.has(normaliseConnection(c)))
+  const correctSet = new Set(correct.map((c) => `${c.sourceBlockId}->${c.targetBlockId}`))
+  return student.every((c) => correctSet.has(`${c.sourceBlockId}->${c.targetBlockId}`))
 }
 
 // ── Route handler ─────────────────────────────────────────────────────────────
@@ -87,12 +109,11 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { activityId, studentConnections, studentBlockOrder } = body
+  const { activityId, studentConnections, studentBlockOrder, reconstructedCode } = body
 
   if (
     typeof activityId !== 'string' ||
-    !Array.isArray(studentConnections) ||
-    !Array.isArray(studentBlockOrder)
+    !Array.isArray(studentConnections)
   ) {
     return NextResponse.json(
       { success: false, message: 'Faltan campos requeridos.' },
@@ -116,7 +137,15 @@ export async function POST(request: NextRequest) {
 
   const adminClient = getAdminClient()
 
-  // ── 3. Fetch correct blocks (ordered by orden_correcto) ────────────────
+  // ── 3. Fetch activity details & correct blocks ─────────────────────────
+  const { data: activityData } = await adminClient
+    .from('activities')
+    .select('id, resultado_esperado')
+    .eq('id', activityId)
+    .maybeSingle()
+
+  const expectedOutput = (activityData?.resultado_esperado ?? '').trim()
+
   const { data: correctBlocks, error: blocksError } = await adminClient
     .from('blocks')
     .select('id, orden_correcto')
@@ -147,23 +176,69 @@ export async function POST(request: NextRequest) {
 
   // ── 5. Compare block order ─────────────────────────────────────────────
   const correctOrder = correctBlocks.map((b) => b.id as string)
+
+  const effectiveBlockOrder =
+    Array.isArray(studentBlockOrder) && studentBlockOrder.length > 0
+      ? studentBlockOrder
+      : deriveBlockOrder(studentConnections, correctOrder)
+
   const orderCorrect =
-    studentBlockOrder.length === correctOrder.length &&
-    studentBlockOrder.every((id, i) => id === correctOrder[i])
+    effectiveBlockOrder.length === correctOrder.length &&
+    effectiveBlockOrder.every((id, i) => id === correctOrder[i])
 
-  // ── 6. Compare connections ─────────────────────────────────────────────
-  const mappedCorrectConnections: StudentConnection[] = (correctConnections ?? []).map(
-    (c) => ({
-      sourceBlockId: c.source_block_id as string,
-      targetBlockId: c.target_block_id as string,
-      sourceHandle: (c.source_handle as string | null) ?? undefined,
-      targetHandle: (c.target_handle as string | null) ?? undefined,
-    }),
-  )
+  let isSuccess = false
+  let responseMessage = ''
+  let executionStdout = ''
 
-  const connectCorrect = connectionsMatch(studentConnections, mappedCorrectConnections)
+  // ── 6. Dynamic execution validation if reconstructedCode is present ──
+  if (typeof reconstructedCode === 'string' && reconstructedCode.trim().length > 0) {
+    const execResult = await executePythonCode(reconstructedCode)
 
-  const isSuccess = orderCorrect && connectCorrect
+    if (!execResult.success) {
+      // Syntax or runtime error in Python
+      isSuccess = false
+      responseMessage = execResult.stderr || 'Error de sintaxis o ejecución en Python.'
+    } else {
+      executionStdout = execResult.stdout
+      const outputMatches =
+        execResult.stdout.trim() === expectedOutput ||
+        (expectedOutput === '' && execResult.stdout !== undefined)
+
+      if (outputMatches) {
+        isSuccess = true
+        responseMessage = '¡Correcto! El código se ejecutó y produjo el resultado esperado.'
+      } else {
+        isSuccess = false
+        responseMessage = `El código se ejecutó, pero la salida no es la esperada.\nSalida obtenida:\n${execResult.stdout}\n\nSalida esperada:\n${expectedOutput}`
+      }
+    }
+  } else {
+    // Legacy / fallback: compare block order & connections
+    const mappedCorrectConnections: StudentConnection[] = (correctConnections ?? []).map(
+      (c) => ({
+        sourceBlockId: c.source_block_id as string,
+        targetBlockId: c.target_block_id as string,
+        sourceHandle: (c.source_handle as string | null) ?? undefined,
+        targetHandle: (c.target_handle as string | null) ?? undefined,
+      }),
+    )
+
+    const connectCorrect = connectionsMatch(studentConnections, mappedCorrectConnections)
+    isSuccess =
+      connectCorrect ||
+      (orderCorrect && studentConnections.length >= mappedCorrectConnections.length)
+
+    if (isSuccess) {
+      responseMessage = '¡Correcto! Has completado la actividad.'
+    } else {
+      responseMessage =
+        !orderCorrect && !connectCorrect
+          ? 'El orden de los bloques y las conexiones no son correctas.'
+          : !orderCorrect
+            ? 'El orden de los bloques no es correcto.'
+            : 'Las conexiones entre bloques no son correctas.'
+    }
+  }
 
   // ── 7. Upsert progress record ──────────────────────────────────────────
   const { data: existingProgress } = await adminClient
@@ -191,27 +266,16 @@ export async function POST(request: NextRequest) {
     .upsert(progressUpdate, { onConflict: 'student_id,activity_id' })
 
   if (upsertError) {
-    // Non-fatal — log but still return the validation result
     console.error('[validate] Error upserting progress:', upsertError)
   }
 
   // ── 8. Return result ───────────────────────────────────────────────────
-  if (isSuccess) {
-    return NextResponse.json(
-      { success: true, message: '¡Correcto! Has completado la actividad.' },
-      { status: 200 },
-    )
-  }
-
-  const hint =
-    !orderCorrect && !connectCorrect
-      ? 'El orden de los bloques y las conexiones no son correctas.'
-      : !orderCorrect
-        ? 'El orden de los bloques no es correcto.'
-        : 'Las conexiones entre bloques no son correctas.'
-
   return NextResponse.json(
-    { success: false, message: hint },
+    {
+      success: isSuccess,
+      message: responseMessage,
+      stdout: executionStdout,
+    },
     { status: 200 },
   )
 }

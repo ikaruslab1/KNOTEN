@@ -24,9 +24,11 @@ import { ChevronLeft } from "lucide-react"
 import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
+import LineRailNode from "./LineRailNode"
 import Toolbar from "./Toolbar"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
+import { reconstructCodeFromCanvas } from "@/lib/code-reconstructor"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -122,6 +124,7 @@ const nodeTypes = {
   codeBlock: CodeBlock,
   indentBlock: IndentBlock,
   sticker: StickerNode,
+  lineRail: LineRailNode,
 }
 
 const edgeTypes = {
@@ -131,10 +134,22 @@ const edgeTypes = {
 // ─── Helper: initialise nodes from blocks ─────────────────────────────────────
 
 function blocksToNodes(blocks: Block[]): Node[] {
-  return blocks.map((block, index) => {
+  // Estimate number of lines from distinct Y positions
+  const distinctY = new Set(blocks.map((b) => b.posicion_y))
+  const estimatedLines = Math.max(3, distinctY.size)
+
+  const lineRailNode: Node = {
+    id: "line-rail",
+    type: "lineRail",
+    position: { x: 30, y: 100 },
+    data: { lines: estimatedLines, readOnly: false },
+    deletable: false,
+  }
+
+  const blockNodes: Node[] = blocks.map((block, index) => {
     // Default staggered layout if positions are 0 or unset
-    const defaultX = 120 + (index % 2) * 320
-    const defaultY = 120 + Math.floor(index / 2) * 160
+    const defaultX = 220 + (index % 2) * 320
+    const defaultY = 100 + Math.floor(index / 2) * 160
     const posX =
       block.posicion_x !== undefined && block.posicion_x !== 0
         ? block.posicion_x
@@ -173,6 +188,43 @@ function blocksToNodes(blocks: Block[]): Node[] {
       data: { emoji: block.contenido ?? '✔️' },
     }
   })
+
+  return [lineRailNode, ...blockNodes]
+}
+
+// ─── Helper: calculate student block order from edges graph ──────────────────
+
+function getStudentBlockOrder(edges: Edge[], nodes: Node[]): string[] {
+  const codeNodeIds = new Set(
+    nodes.filter((n) => n.type !== 'sticker').map((n) => n.id)
+  )
+
+  const nextMap = new Map<string, string>()
+  const inDegree = new Map<string, number>()
+
+  for (const edge of edges) {
+    if (codeNodeIds.has(edge.source) && codeNodeIds.has(edge.target)) {
+      nextMap.set(edge.source, edge.target)
+      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+    }
+  }
+
+  // Find start node: in codeNodeIds, with inDegree === 0 and has outgoing edge
+  const startId = Array.from(codeNodeIds).find(
+    (id) => !inDegree.has(id) && nextMap.has(id)
+  )
+
+  const order: string[] = []
+  const visited = new Set<string>()
+  let curr = startId
+
+  while (curr && !visited.has(curr)) {
+    visited.add(curr)
+    order.push(curr)
+    curr = nextMap.get(curr)
+  }
+
+  return order
 }
 
 // ─── Inner canvas (needs useReactFlow) ───────────────────────────────────────
@@ -224,9 +276,11 @@ function FlowCanvasInner({
   }, [setNodes])
 
   // ── canExecute ──────────────────────────────────────────────────────────────
-  // A minimal spanning connection: edges >= (non-sticker nodes - 1)
-  const nonStickerCount = blocks.filter((b) => b.tipo !== "sticker").length
-  const canExecute = edges.length >= Math.max(0, nonStickerCount - 1)
+  // A minimal connection count across the code blocks
+  const codeNodesCount = nodes.filter(
+    (n) => n.type === "codeBlock" || n.type === "indentBlock"
+  ).length
+  const canExecute = edges.length >= Math.max(1, codeNodesCount - 1)
 
   // ── onConnect ───────────────────────────────────────────────────────────────
   const onConnect = useCallback(
@@ -267,13 +321,23 @@ function FlowCanvasInner({
     const studentConnections = edges.map((e) => ({
       sourceBlockId: e.source,
       targetBlockId: e.target,
+      sourceHandle: e.sourceHandle ?? undefined,
+      targetHandle: e.targetHandle ?? undefined,
     }))
+
+    const studentBlockOrder = getStudentBlockOrder(edges, nodes)
+    const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
 
     try {
       const res = await fetch("/api/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ activityId, studentConnections }),
+        body: JSON.stringify({
+          activityId,
+          studentConnections,
+          studentBlockOrder,
+          reconstructedCode,
+        }),
       })
 
       const json = await res.json()
@@ -281,7 +345,10 @@ function FlowCanvasInner({
       if (json.success) {
         // ── SUCCESS ──────────────────────────────────────────────────────────
         setTerminalStatus("success")
-        setTerminalLines(resultadoEsperado.split("\n"))
+        const outputLines = json.stdout
+          ? json.stdout.split("\n")
+          : resultadoEsperado.split("\n")
+        setTerminalLines(outputLines)
 
         // Turn all edges green
         setEdges((eds) =>
@@ -310,10 +377,13 @@ function FlowCanvasInner({
       } else {
         // ── ERROR ─────────────────────────────────────────────────────────────
         setTerminalStatus("error")
-        setTerminalLines([
-          "Error: la secuencia no es correcta",
-          "Revisa las conexiones e intenta de nuevo",
-        ])
+        const errorLines = json.message
+          ? json.message.split("\n")
+          : [
+              "Error: la secuencia no es correcta",
+              "Revisa las conexiones e intenta de nuevo",
+            ]
+        setTerminalLines(errorLines)
 
         // Flash edges red + spring-back animation
         setEdges((eds) =>
@@ -349,6 +419,7 @@ function FlowCanvasInner({
     canExecute,
     edges,
     isExecuting,
+    nodes,
     resultadoEsperado,
     setEdges,
     setNodes,

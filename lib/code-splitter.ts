@@ -3,6 +3,7 @@ export type SplitBlock = {
   contenido: string // empty string for indentation blocks
   orden_correcto: number
   indent_level: number // 0-based indentation depth (each 4 spaces = 1 level)
+  line_index?: number // 0-based line number for layout grouping
 }
 
 // Keywords that introduce an indentation block
@@ -47,50 +48,81 @@ function calcIndentLevel(rawLine: string): number {
 }
 
 /**
+ * Tokenizes a single line of Python source code into constituent syntactic tokens.
+ * Matches:
+ * - String literals (with f/r/b prefixes, single/double/triple quotes)
+ * - Number literals (floats, ints, hex, binary)
+ * - Multi-character operators (==, !=, <=, >=, +=, -=, *=, /=, //, **, etc.)
+ * - Identifiers and Python keywords
+ * - Single-character delimiters and operators
+ * Strips comments outside strings.
+ */
+export function tokenizeLine(line: string): string[] {
+  const tokenRegex =
+    /([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))|(#[^\r\n]*)|(0[xXoObB][0-9a-fA-F_]+|\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)|(\*\*=|--|\+\+|\/\/=|<<=|>>=|\*\*|\/\/|<<|>>|->|==|!=|<=|>=|\+=|-=|\*=|\/=|%=|&=|\|=|\^=)|([a-zA-Z_]\w*)|([+\-*/%=<>!&|^~():,.[\]{}])/g
+
+  const tokens: string[] = []
+  let match: RegExpExecArray | null
+
+  while ((match = tokenRegex.exec(line)) !== null) {
+    // If it is a comment (match[2]), stop processing remainder of the line
+    if (match[2]) break
+    tokens.push(match[0])
+  }
+
+  return tokens
+}
+
+/**
  * Splits raw Python source code into an ordered array of SplitBlock objects.
  *
  * Rules:
  * - Blank / whitespace-only lines are skipped.
- * - Every meaningful line becomes a 'codigo' block whose `contenido` is the
- *   trimmed source text (leading indent stripped, preserved in `indent_level`).
- * - If a 'codigo' line introduces a new indent scope (ends with ':' AND starts
+ * - Each code line is tokenized into individual syntactic token blocks ('codigo').
+ *   For example, `x = 10` produces 3 blocks: `"x"`, `"="`, `"10"`.
+ * - If a line introduces a new indent scope (ends with ':' AND starts
  *   with an INDENT_KEYWORD), an additional 'indentacion' placeholder block is
- *   inserted immediately after it. The placeholder has `contenido: ''` and the
- *   same `indent_level` as its parent line.
+ *   appended after its tokens.
  * - `orden_correcto` is assigned sequentially starting from 0.
  */
 export function splitPythonCode(rawCode: string): SplitBlock[] {
   const lines = rawCode.split('\n')
   const blocks: SplitBlock[] = []
   let order = 0
+  let lineIdx = 0
 
-  for (const line of lines) {
-    // Skip blank lines
-    if (line.trim() === '') continue
+  for (const rawLine of lines) {
+    if (rawLine.trim() === '') continue
 
-    const indentLevel = calcIndentLevel(line)
-    const trimmed = line.trim()
+    const indentLevel = calcIndentLevel(rawLine)
+    const tokens = tokenizeLine(rawLine)
 
-    // Every non-empty line becomes a 'codigo' block
-    const codeBlock: SplitBlock = {
-      tipo: 'codigo',
-      contenido: trimmed,
-      orden_correcto: order++,
-      indent_level: indentLevel,
+    if (tokens.length === 0) continue
+
+    for (const token of tokens) {
+      blocks.push({
+        tipo: 'codigo',
+        contenido: token,
+        orden_correcto: order++,
+        indent_level: indentLevel,
+        line_index: lineIdx,
+      })
     }
-    blocks.push(codeBlock)
 
+    const trimmed = rawLine.trim()
     // If the line ends with ':' and starts with an indent keyword,
-    // insert an 'indentacion' placeholder immediately after it.
+    // insert an 'indentacion' placeholder immediately after its tokens.
     if (trimmed.endsWith(':') && isIndentKeywordLine(trimmed)) {
-      const indentBlock: SplitBlock = {
+      blocks.push({
         tipo: 'indentacion',
         contenido: '',
         orden_correcto: order++,
         indent_level: indentLevel,
-      }
-      blocks.push(indentBlock)
+        line_index: lineIdx,
+      })
     }
+
+    lineIdx++
   }
 
   return blocks
@@ -100,20 +132,44 @@ export function splitPythonCode(rawCode: string): SplitBlock[] {
  * Returns suggested initial (x, y) canvas positions for each block.
  *
  * Layout rules:
- * - Start at x=100, y=100.
- * - Stack blocks vertically with 80 px between each.
- * - Indent deeper blocks 40 px to the right per indent level.
+ * - Tokens in the same line are laid out horizontally from left to right.
+ * - Each subsequent line starts on a new row (Y offset).
+ * - Indented lines are shifted right by 40px per indent level.
+ * - Spacing between tokens is calculated dynamically to prevent overlap.
  */
 export function getDefaultPositions(
   blocks: SplitBlock[],
 ): { x: number; y: number }[] {
-  const START_X = 100
+  const START_X = 220
   const START_Y = 100
-  const Y_GAP = 80
-  const X_INDENT = 40
+  const Y_GAP = 90
+  const X_INDENT = 48
+  const TOKEN_MARGIN = 24
 
-  return blocks.map((block, index) => ({
-    x: START_X + block.indent_level * X_INDENT,
-    y: START_Y + index * Y_GAP,
-  }))
+  // Group by line_index (or by detecting line changes)
+  let currentLineIdx = -1
+  let currentX = START_X
+
+  return blocks.map((block) => {
+    const line = block.line_index ?? 0
+
+    if (line !== currentLineIdx) {
+      currentLineIdx = line
+      currentX = START_X + (block.indent_level ?? 0) * X_INDENT
+    }
+
+    const posX = currentX
+    const posY = START_Y + line * Y_GAP
+
+    // Estimate width of this block to position the next one
+    const textLen = (block.contenido ?? '').length
+    const estimatedWidth =
+      block.tipo === 'indentacion'
+        ? 200
+        : Math.max(60, textLen * 9 + 32)
+
+    currentX += estimatedWidth + TOKEN_MARGIN
+
+    return { x: posX, y: posY }
+  })
 }
