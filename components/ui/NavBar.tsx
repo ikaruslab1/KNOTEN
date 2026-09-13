@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/server'
-import { LogIn, Code2, User } from 'lucide-react'
+import { Code2, User } from 'lucide-react'
+import AuthTriggerButton from '@/components/auth/AuthTriggerButton'
 
 export async function NavBar() {
   const [user, profile] = await Promise.all([
@@ -9,11 +10,11 @@ export async function NavBar() {
   ])
 
   return (
-    <header className="sticky top-0 inset-x-0 z-40 bg-white/90 backdrop-blur-md border-b border-zinc-200">
+    <header className="sticky top-0 inset-x-0 z-40 bg-white/90 backdrop-blur-md border-b border-zinc-200 animate-slide-down-fade">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 font-bold text-xl text-zinc-900 tracking-tight">
+          <Link href="/" className="flex items-center gap-2.5 font-bold text-xl text-zinc-900 tracking-tight hover:opacity-85 transition-opacity">
             <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center text-white">
               <Code2 size={18} />
             </div>
@@ -54,13 +55,7 @@ export async function NavBar() {
                 </form>
               </>
             ) : (
-              <Link
-                href="/login"
-                className="flex items-center gap-1.5 text-xs sm:text-sm font-medium text-white bg-zinc-900 hover:bg-zinc-800 px-3 sm:px-4 py-1.5 sm:py-2 rounded-xl transition-colors shadow-sm shrink-0"
-              >
-                <LogIn size={14} />
-                Ingresar
-              </Link>
+              <AuthTriggerButton defaultTab="login" />
             )}
           </div>
         </div>

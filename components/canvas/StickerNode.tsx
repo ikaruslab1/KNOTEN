@@ -2,6 +2,7 @@
 import { memo, useState } from 'react'
 import { NodeProps, useReactFlow } from 'reactflow'
 import { Minus, Plus, Trash2, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export type StickerNodeData = {
   emoji: string
@@ -40,10 +41,14 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className="relative flex items-center justify-center cursor-move select-none group"
+      className={cn(
+        'relative flex items-center justify-center cursor-move select-none group',
+        (data as any)?.isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in'
+      )}
       style={{
         width: currentSize,
         height: currentSize,
+        animationDelay: `${(data as any)?.entranceDelay ?? 0}s`,
       }}
     >
       {/* Floating Toolbar for Scaling and Delete */}

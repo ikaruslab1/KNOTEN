@@ -205,3 +205,184 @@ export async function syncOfflineContent(): Promise<SyncResult> {
     isSyncing = false
   }
 }
+
+// ─── Manual Targeted Course & Session Downloader ──────────────────────────────
+
+export async function downloadCourseOffline(cursoId: string): Promise<{
+  success: boolean
+  error?: string
+  activitiesCount: number
+  sessionsCount: number
+}> {
+  if (typeof window === 'undefined') {
+    return { success: false, error: 'Entorno no soportado', activitiesCount: 0, sessionsCount: 0 }
+  }
+
+  if (!navigator.onLine) {
+    return {
+      success: false,
+      error: 'Se requiere conexión a internet para descargar el curso',
+      activitiesCount: 0,
+      sessionsCount: 0,
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/sync/offline-content?cursoId=${cursoId}`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    if (!data.success) throw new Error(data.error || 'Error al obtener curso')
+
+    const courses: OfflineCourse[] = data.courses || []
+    const sessions: OfflineSession[] = data.sessions || []
+    const activities: OfflineActivity[] = data.activities || []
+
+    await saveCourses(courses)
+    await saveSessions(sessions)
+    await saveActivities(activities)
+
+    // Pre-cache into Cache API
+    if ('caches' in window) {
+      try {
+        const cache = await window.caches.open('knoten-cache-v2')
+        const courseRes = await fetch(`/curso/${cursoId}`)
+        if (courseRes.ok) {
+          await cache.put(`/curso/${cursoId}`, courseRes.clone())
+          await cache.put('/curso-shell', courseRes.clone())
+        }
+
+        for (const act of activities) {
+          try {
+            const actRes = await fetch(`/actividad/${act.id}`)
+            if (actRes.ok) {
+              await cache.put(`/actividad/${act.id}`, actRes.clone())
+              await cache.put('/actividad-shell', actRes.clone())
+            }
+          } catch {}
+        }
+      } catch (cacheErr) {
+        console.warn('Cache API precaching error:', cacheErr)
+      }
+    }
+
+    const finalStats = await getOfflineDatabaseStats()
+    await saveSyncMeta({
+      id: 'latest',
+      last_sync: new Date().toISOString(),
+      new_activities: activities.length,
+      updated_activities: 0,
+      total_activities: finalStats.activitiesCount,
+      total_sessions: finalStats.sessionsCount,
+      total_courses: finalStats.coursesCount,
+    })
+
+    window.dispatchEvent(
+      new CustomEvent('knoten:download-updated', {
+        detail: { type: 'course-downloaded', cursoId, activitiesCount: activities.length },
+      })
+    )
+    window.dispatchEvent(
+      new CustomEvent('knoten:sync-complete', {
+        detail: { newActivitiesCount: activities.length },
+      })
+    )
+
+    return {
+      success: true,
+      activitiesCount: activities.length,
+      sessionsCount: sessions.length,
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Error al descargar curso',
+      activitiesCount: 0,
+      sessionsCount: 0,
+    }
+  }
+}
+
+export async function downloadSessionOffline(sessionId: string): Promise<{
+  success: boolean
+  error?: string
+  activitiesCount: number
+}> {
+  if (typeof window === 'undefined') {
+    return { success: false, error: 'Entorno no soportado', activitiesCount: 0 }
+  }
+
+  if (!navigator.onLine) {
+    return {
+      success: false,
+      error: 'Se requiere conexión a internet para descargar la sesión',
+      activitiesCount: 0,
+    }
+  }
+
+  try {
+    const res = await fetch(`/api/sync/offline-content?sessionId=${sessionId}`, { cache: 'no-store' })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const data = await res.json()
+    if (!data.success) throw new Error(data.error || 'Error al obtener sesión')
+
+    const courses: OfflineCourse[] = data.courses || []
+    const sessions: OfflineSession[] = data.sessions || []
+    const activities: OfflineActivity[] = data.activities || []
+
+    if (courses.length > 0) await saveCourses(courses)
+    if (sessions.length > 0) await saveSessions(sessions)
+    if (activities.length > 0) await saveActivities(activities)
+
+    // Pre-cache into Cache API
+    if ('caches' in window) {
+      try {
+        const cache = await window.caches.open('knoten-cache-v2')
+        for (const act of activities) {
+          try {
+            const actRes = await fetch(`/actividad/${act.id}`)
+            if (actRes.ok) {
+              await cache.put(`/actividad/${act.id}`, actRes.clone())
+              await cache.put('/actividad-shell', actRes.clone())
+            }
+          } catch {}
+        }
+      } catch (cacheErr) {
+        console.warn('Cache API precaching error:', cacheErr)
+      }
+    }
+
+    const finalStats = await getOfflineDatabaseStats()
+    await saveSyncMeta({
+      id: 'latest',
+      last_sync: new Date().toISOString(),
+      new_activities: activities.length,
+      updated_activities: 0,
+      total_activities: finalStats.activitiesCount,
+      total_sessions: finalStats.sessionsCount,
+      total_courses: finalStats.coursesCount,
+    })
+
+    window.dispatchEvent(
+      new CustomEvent('knoten:download-updated', {
+        detail: { type: 'session-downloaded', sessionId, activitiesCount: activities.length },
+      })
+    )
+    window.dispatchEvent(
+      new CustomEvent('knoten:sync-complete', {
+        detail: { newActivitiesCount: activities.length },
+      })
+    )
+
+    return {
+      success: true,
+      activitiesCount: activities.length,
+    }
+  } catch (err: any) {
+    return {
+      success: false,
+      error: err.message || 'Error al descargar sesión',
+      activitiesCount: 0,
+    }
+  }
+}
+

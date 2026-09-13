@@ -3,6 +3,7 @@
 import { memo, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { ArrowRight, Hash, Plus, Minus } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export type LineRailData = {
   lines?: number
@@ -42,8 +43,14 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
 
   return (
     <div
-      className="relative rounded-2xl border border-zinc-300 bg-white/95 shadow-md backdrop-blur-xs select-none w-[130px] transition-all"
-      style={{ height: totalHeight + RAIL_HEADER_HEIGHT + RAIL_FOOTER_HEIGHT }}
+      className={cn(
+        'relative rounded-2xl border border-zinc-300 bg-white/95 shadow-md backdrop-blur-xs select-none w-[130px] transition-all',
+        (data as any)?.isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in'
+      )}
+      style={{
+        height: totalHeight + RAIL_HEADER_HEIGHT + RAIL_FOOTER_HEIGHT,
+        animationDelay: `${(data as any)?.entranceDelay ?? 0}s`,
+      }}
     >
       {/* Header (36px) */}
       <div className="h-[36px] flex items-center justify-between px-3 border-b border-zinc-200 bg-zinc-50 rounded-t-2xl">

@@ -277,3 +277,250 @@ export async function getOfflineDatabaseStats(): Promise<{
     return { coursesCount: 0, sessionsCount: 0, activitiesCount: 0 }
   }
 }
+
+// ─── Course & Session Deletion (Free storage space) ───────────────────────────
+
+export async function deleteOfflineCourse(cursoId: string): Promise<{ deletedActivities: number; deletedSessions: number }> {
+  const db = await openDB()
+
+  // 1. Get all sessions for this course
+  const sessions = await getOfflineSessionsByCourse(cursoId)
+  const sessionIds = sessions.map((s) => s.id)
+
+  // 2. Get all activities for these sessions
+  let activityIds: string[] = []
+  for (const sId of sessionIds) {
+    const acts = await getOfflineActivitiesBySession(sId)
+    activityIds = activityIds.concat(acts.map((a) => a.id))
+  }
+
+  // 3. Delete activities
+  if (activityIds.length > 0) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('activities', 'readwrite')
+      const store = tx.objectStore('activities')
+      for (const actId of activityIds) {
+        store.delete(actId)
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  // 4. Delete sessions
+  if (sessionIds.length > 0) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('sessions', 'readwrite')
+      const store = tx.objectStore('sessions')
+      for (const sId of sessionIds) {
+        store.delete(sId)
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  // 5. Delete course
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('courses', 'readwrite')
+    const store = tx.objectStore('courses')
+    store.delete(cursoId)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+
+  // 6. Clean up Cache API
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    try {
+      const cache = await window.caches.open('knoten-cache-v2')
+      await cache.delete(`/curso/${cursoId}`)
+      for (const actId of activityIds) {
+        await cache.delete(`/actividad/${actId}`)
+      }
+    } catch {}
+  }
+
+  // 7. Update sync metadata
+  const stats = await getOfflineDatabaseStats()
+  await saveSyncMeta({
+    id: 'latest',
+    last_sync: new Date().toISOString(),
+    new_activities: 0,
+    updated_activities: 0,
+    total_activities: stats.activitiesCount,
+    total_sessions: stats.sessionsCount,
+    total_courses: stats.coursesCount,
+  })
+
+  // 8. Dispatch events for listeners
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('knoten:download-updated', {
+        detail: { type: 'course-deleted', cursoId },
+      })
+    )
+    window.dispatchEvent(
+      new CustomEvent('knoten:sync-complete', {
+        detail: { stats },
+      })
+    )
+  }
+
+  return { deletedActivities: activityIds.length, deletedSessions: sessionIds.length }
+}
+
+export async function deleteOfflineSession(sessionId: string): Promise<{ deletedActivities: number }> {
+  const db = await openDB()
+
+  // 1. Get all activities for this session
+  const activities = await getOfflineActivitiesBySession(sessionId)
+  const activityIds = activities.map((a) => a.id)
+
+  // 2. Delete activities
+  if (activityIds.length > 0) {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('activities', 'readwrite')
+      const store = tx.objectStore('activities')
+      for (const actId of activityIds) {
+        store.delete(actId)
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  }
+
+  // 3. Delete session
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('sessions', 'readwrite')
+    const store = tx.objectStore('sessions')
+    store.delete(sessionId)
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+
+  // 4. Clean up Cache API
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    try {
+      const cache = await window.caches.open('knoten-cache-v2')
+      for (const actId of activityIds) {
+        await cache.delete(`/actividad/${actId}`)
+      }
+    } catch {}
+  }
+
+  // 5. Update sync metadata
+  const stats = await getOfflineDatabaseStats()
+  await saveSyncMeta({
+    id: 'latest',
+    last_sync: new Date().toISOString(),
+    new_activities: 0,
+    updated_activities: 0,
+    total_activities: stats.activitiesCount,
+    total_sessions: stats.sessionsCount,
+    total_courses: stats.coursesCount,
+  })
+
+  // 6. Dispatch event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('knoten:download-updated', {
+        detail: { type: 'session-deleted', sessionId },
+      })
+    )
+    window.dispatchEvent(
+      new CustomEvent('knoten:sync-complete', {
+        detail: { stats },
+      })
+    )
+  }
+
+  return { deletedActivities: activityIds.length }
+}
+
+export async function clearAllOfflineStorage(): Promise<void> {
+  const db = await openDB()
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['courses', 'sessions', 'activities', 'sync_meta'], 'readwrite')
+    tx.objectStore('courses').clear()
+    tx.objectStore('sessions').clear()
+    tx.objectStore('activities').clear()
+    tx.objectStore('sync_meta').clear()
+    tx.oncomplete = () => resolve()
+    tx.onerror = () => reject(tx.error)
+  })
+
+  if (typeof window !== 'undefined' && 'caches' in window) {
+    try {
+      const cache = await window.caches.open('knoten-cache-v2')
+      const keys = await cache.keys()
+      for (const req of keys) {
+        const u = new URL(req.url)
+        if (u.pathname.startsWith('/curso/') || u.pathname.startsWith('/actividad/')) {
+          await cache.delete(req)
+        }
+      }
+    } catch {}
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('knoten:download-updated', {
+        detail: { type: 'all-cleared' },
+      })
+    )
+    window.dispatchEvent(
+      new CustomEvent('knoten:sync-complete', {
+        detail: { allCleared: true },
+      })
+    )
+  }
+}
+
+// ─── Status Checkers ──────────────────────────────────────────────────────────
+
+export async function getCourseOfflineStatus(cursoId: string): Promise<{
+  isDownloaded: boolean
+  sessionsCount: number
+  activitiesCount: number
+}> {
+  try {
+    const db = await openDB()
+    const course = await new Promise<any>((resolve) => {
+      const tx = db.transaction('courses', 'readonly')
+      const req = tx.objectStore('courses').get(cursoId)
+      req.onsuccess = () => resolve(req.result || null)
+      req.onerror = () => resolve(null)
+    })
+
+    const sessions = await getOfflineSessionsByCourse(cursoId)
+    let activitiesCount = 0
+    for (const s of sessions) {
+      const acts = await getOfflineActivitiesBySession(s.id)
+      activitiesCount += acts.length
+    }
+
+    return {
+      isDownloaded: Boolean(course) || activitiesCount > 0,
+      sessionsCount: sessions.length,
+      activitiesCount,
+    }
+  } catch {
+    return { isDownloaded: false, sessionsCount: 0, activitiesCount: 0 }
+  }
+}
+
+export async function getSessionOfflineStatus(sessionId: string): Promise<{
+  isDownloaded: boolean
+  activitiesCount: number
+}> {
+  try {
+    const acts = await getOfflineActivitiesBySession(sessionId)
+    return {
+      isDownloaded: acts.length > 0,
+      activitiesCount: acts.length,
+    }
+  } catch {
+    return { isDownloaded: false, activitiesCount: 0 }
+  }
+}
+

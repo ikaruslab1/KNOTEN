@@ -23,6 +23,7 @@ import "reactflow/dist/style.css"
 import confetti from "canvas-confetti"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { ChevronLeft, ChevronDown, ChevronUp, CheckCircle2, Circle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import CodeBlock from "./CodeBlock"
@@ -30,6 +31,8 @@ import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
 import LineRailNode from "./LineRailNode"
 import Toolbar from "./Toolbar"
+import ElasticConnectionLine from "./ElasticConnectionLine"
+import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
@@ -67,7 +70,7 @@ type EdgeData = {
   animating?: boolean
   success?: boolean
   error?: boolean
-  onDelete?: (id: string) => void
+  onDelete?: (id: string, pos?: { x: number; y: number }) => void
 }
 
 type AppEdge = Edge<EdgeData>
@@ -163,7 +166,7 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                data?.onDelete?.(id)
+                data?.onDelete?.(id, { x: e.clientX, y: e.clientY })
               }}
               title="Desconectar enlace"
               className="flex h-5 w-5 items-center justify-center rounded-full bg-white border border-zinc-300 shadow-xs text-zinc-400 hover:text-white hover:bg-red-500 hover:border-red-600 transition-all cursor-pointer select-none"
@@ -200,7 +203,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
     id: "line-rail",
     type: "lineRail",
     position: { x: 30, y: 80 },
-    data: { lines: 1, readOnly: false },
+    data: { lines: 1, readOnly: false, entranceDelay: 0, isExiting: false },
     deletable: false,
   }
 
@@ -222,6 +225,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
 
     const posX = START_X + col * COL_WIDTH + jitterX
     const posY = START_Y + row * ROW_HEIGHT + jitterY
+    const entranceDelay = Number(((index + 1) * 0.075).toFixed(3))
 
     const base = {
       id: block.id,
@@ -233,7 +237,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
       return {
         ...base,
         type: "codeBlock",
-        data: { code: block.contenido ?? '', state: "idle" as NodeState },
+        data: { code: block.contenido ?? '', state: "idle" as NodeState, entranceDelay, isExiting: false },
       }
     }
 
@@ -241,7 +245,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
       return {
         ...base,
         type: "indentBlock",
-        data: { rows: 1, state: "idle" as NodeState },
+        data: { rows: 1, state: "idle" as NodeState, entranceDelay, isExiting: false },
       }
     }
 
@@ -249,7 +253,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
     return {
       ...base,
       type: "sticker",
-      data: { emoji: block.contenido ?? '✔️' },
+      data: { emoji: block.contenido ?? '✔️', entranceDelay, isExiting: false },
     }
   })
 
@@ -309,6 +313,7 @@ function FlowCanvasInner({
   resultadoEsperado,
   isReadOnly = false,
 }: FlowCanvasProps) {
+  const router = useRouter()
   const { fitView } = useReactFlow()
   const [nodes, setNodes, onNodesChange] = useNodesState(blocksToNodes(blocks))
   const [edges, setEdges, onEdgesChange] = useEdgesState<EdgeData>([])
@@ -319,6 +324,38 @@ function FlowCanvasInner({
   const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>("idle")
   const [showProblem, setShowProblem] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
+
+  // ── Physics & Particles state ───────────────────────────────────────────────
+  const [bursts, setBursts] = useState<ParticleBurstEvent[]>([])
+  const isConnectingRef = useRef(false)
+
+  const clearBurst = useCallback((id: string) => {
+    setBursts((prev) => prev.filter((b) => b.id !== id))
+  }, [])
+
+  // ── Activity switch with cartoon bounce zoom-out exit ──────────────────────
+  const handleSwitchActivity = useCallback(
+    (targetId: string, e?: React.MouseEvent) => {
+      e?.preventDefault()
+      if (targetId === activityId) {
+        setSelectorOpen(false)
+        return
+      }
+      setSelectorOpen(false)
+      // Trigger cartoon bounce-out on all nodes
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: { ...n.data, isExiting: true },
+        }))
+      )
+      // Navigate after exit animation completes
+      setTimeout(() => {
+        router.push(`/actividad/${targetId}`)
+      }, 300)
+    },
+    [activityId, router, setNodes]
+  )
 
   // ── Completion & Local Cache Management ─────────────────────────────────────
   const [completedMap, setCompletedMap] = useState<Record<string, boolean>>(
@@ -460,7 +497,14 @@ function FlowCanvasInner({
 
   // ── removeEdge ──────────────────────────────────────────────────────────────
   const removeEdge = useCallback(
-    (edgeId: string) => {
+    (edgeId: string, burstPos?: { x: number; y: number }) => {
+      if (burstPos) {
+        setBursts((prev) => [
+          ...prev,
+          { id: `burst-${Date.now()}`, x: burstPos.x, y: burstPos.y },
+        ])
+      }
+
       setEdges((eds) => {
         const targetEdge = eds.find((e) => e.id === edgeId)
         const remaining = eds.filter((e) => e.id !== edgeId)
@@ -533,9 +577,17 @@ function FlowCanvasInner({
   )
 
   const onEdgeUpdateEnd = useCallback(
-    (_: MouseEvent | TouchEvent, edge: Edge) => {
+    (event: MouseEvent | TouchEvent, edge: Edge) => {
       if (!edgeUpdateSuccessful.current) {
-        removeEdge(edge.id)
+        const clientX =
+          (event as MouseEvent).clientX ??
+          (event as TouchEvent).changedTouches?.[0]?.clientX ??
+          0
+        const clientY =
+          (event as MouseEvent).clientY ??
+          (event as TouchEvent).changedTouches?.[0]?.clientY ??
+          0
+        removeEdge(edge.id, clientX && clientY ? { x: clientX, y: clientY } : undefined)
       }
       edgeUpdateSuccessful.current = true
     },
@@ -543,8 +595,8 @@ function FlowCanvasInner({
   )
 
   const onEdgeDoubleClick = useCallback(
-    (_: React.MouseEvent, edge: Edge) => {
-      removeEdge(edge.id)
+    (e: React.MouseEvent, edge: Edge) => {
+      removeEdge(edge.id, { x: e.clientX, y: e.clientY })
     },
     [removeEdge]
   )
@@ -576,9 +628,35 @@ function FlowCanvasInner({
     [onEdgesChange, setEdges, setNodes]
   )
 
-  // ── onConnect ───────────────────────────────────────────────────────────────
+  // ── Connection lifecycle (elastic stretch, snap back, particles, block impact) ──
+  const onConnectStart = useCallback(() => {
+    isConnectingRef.current = true
+  }, [])
+
+  const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
+    if (isConnectingRef.current) {
+      // Connection released in the void: snap-back & burst particles
+      const clientX =
+        (event as MouseEvent).clientX ??
+        (event as TouchEvent).changedTouches?.[0]?.clientX ??
+        0
+      const clientY =
+        (event as MouseEvent).clientY ??
+        (event as TouchEvent).changedTouches?.[0]?.clientY ??
+        0
+      if (clientX && clientY) {
+        setBursts((prev) => [
+          ...prev,
+          { id: `burst-${Date.now()}`, x: clientX, y: clientY },
+        ])
+      }
+    }
+    isConnectingRef.current = false
+  }, [])
+
   const onConnect = useCallback(
     (connection: Connection) => {
+      isConnectingRef.current = false
       const newEdge: Edge = {
         ...connection,
         id: `e-${connection.source}-${connection.sourceHandle || ""}-${connection.target}-${Date.now()}`,
@@ -595,11 +673,21 @@ function FlowCanvasInner({
 
       setEdges((eds) => addEdge(newEdge, eds))
 
-      // Mark source and target nodes as connected
+      // Mark source and target nodes as connected, AND trigger block bump reaction on target!
       setNodes((nds) =>
         nds.map((n) => {
           if (n.type === "lineRail" || n.type === "sticker") return n
-          if (n.id === connection.source || n.id === connection.target) {
+          if (n.id === connection.target) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                state: "connected",
+                bump: Date.now(),
+              },
+            }
+          }
+          if (n.id === connection.source) {
             return { ...n, data: { ...n.data, state: "connected" } }
           }
           return n
@@ -921,10 +1009,10 @@ function FlowCanvasInner({
                           isCurrent && "bg-zinc-100/90 font-semibold text-zinc-950"
                         )}
                       >
-                        <Link
-                          href={`/actividad/${act.id}`}
-                          onClick={() => setSelectorOpen(false)}
-                          className="flex-1 flex items-center gap-2.5 text-zinc-700 hover:text-zinc-950 truncate mr-2"
+                        <button
+                          type="button"
+                          onClick={(e) => handleSwitchActivity(act.id, e)}
+                          className="flex-1 flex items-center gap-2.5 text-zinc-700 hover:text-zinc-950 truncate mr-2 text-left cursor-pointer"
                         >
                           <span
                             className={cn(
@@ -937,7 +1025,7 @@ function FlowCanvasInner({
                             {act.orden !== undefined ? act.orden + 1 : idx + 1}
                           </span>
                           <span className="truncate">{title}</span>
-                        </Link>
+                        </button>
 
                         {/* Completion toggle button */}
                         <button
@@ -964,17 +1052,18 @@ function FlowCanvasInner({
             )}
           </div>
 
-          {/* Next activity button (appears when current activity is completed and a next activity exists) */}
+          {/* Next activity button (triggers cartoon zoom-out and enters next activity) */}
           {isCurrentCompleted && nextActivity && (
-            <Link
-              href={`/actividad/${nextActivity.id}`}
-              className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm text-xs font-semibold transition shrink-0 animate-in fade-in slide-in-from-left-2 duration-200"
+            <button
+              type="button"
+              onClick={(e) => handleSwitchActivity(nextActivity.id, e)}
+              className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm text-xs font-semibold transition shrink-0 animate-in fade-in slide-in-from-left-2 duration-200 cursor-pointer"
               title="Ir a la siguiente actividad"
             >
               <span className="hidden sm:inline">Siguiente actividad</span>
               <span className="sm:hidden">Siguiente</span>
               <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            </button>
           )}
         </div>
 
@@ -1020,6 +1109,9 @@ function FlowCanvasInner({
         onNodesChange={onNodesChange}
         onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onConnectStart={onConnectStart}
+        onConnectEnd={onConnectEnd}
+        connectionLineComponent={ElasticConnectionLine}
         onEdgeUpdate={onEdgeUpdate}
         onEdgeUpdateStart={onEdgeUpdateStart}
         onEdgeUpdateEnd={onEdgeUpdateEnd}
@@ -1041,6 +1133,9 @@ function FlowCanvasInner({
         />
         <Controls showInteractive={false} />
       </ReactFlow>
+
+      {/* Particle explosion effects on cancelled / broken connections */}
+      <ParticleBurst bursts={bursts} onClear={clearBurst} />
 
       <TerminalModal
         isOpen={showTerminal}

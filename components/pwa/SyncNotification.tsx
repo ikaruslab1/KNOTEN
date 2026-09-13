@@ -1,83 +1,85 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { CheckCircle2, WifiOff, CloudDownload, X, RefreshCw } from 'lucide-react'
-import { syncOfflineContent, SyncResult } from '@/lib/offline/sync'
+import { CheckCircle2, WifiOff, RefreshCw, X, HardDrive } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function SyncNotification() {
   const [isOnline, setIsOnline] = useState(true)
-  const [isSyncing, setIsSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<{
     text: string
-    type: 'success' | 'syncing' | 'offline'
+    type: 'success' | 'syncing' | 'offline' | 'info'
   } | null>(null)
 
-  // Listen to network status
   useEffect(() => {
     setIsOnline(navigator.onLine)
 
     const handleOnline = () => {
       setIsOnline(true)
       setSyncMessage({
-        text: 'Conexión restaurada. Sincronizando contenido...',
-        type: 'syncing',
+        text: 'Conexión a internet restaurada.',
+        type: 'success',
       })
-      triggerSync()
     }
 
     const handleOffline = () => {
       setIsOnline(false)
       setSyncMessage({
-        text: 'Modo sin conexión activo — Las sesiones y actividades descargadas siguen disponibles.',
+        text: 'Modo sin conexión activo — Las sesiones y cursos que hayas descargado siguen disponibles.',
         type: 'offline',
       })
     }
 
+    const handleDownloadUpdated = (e: Event) => {
+      const customEvent = e as CustomEvent
+      const detail = customEvent.detail
+      if (!detail) return
+
+      if (detail.type === 'course-downloaded') {
+        setSyncMessage({
+          text: `Curso descargado con éxito (${detail.activitiesCount} actividades). Disponible para resolver sin conexión.`,
+          type: 'success',
+        })
+      } else if (detail.type === 'session-downloaded') {
+        setSyncMessage({
+          text: `Sesión descargada con éxito (${detail.activitiesCount} actividades). Disponible para resolver sin conexión.`,
+          type: 'success',
+        })
+      } else if (detail.type === 'course-deleted') {
+        setSyncMessage({
+          text: 'Curso eliminado del almacenamiento local. Memoria liberada.',
+          type: 'info',
+        })
+      } else if (detail.type === 'session-deleted') {
+        setSyncMessage({
+          text: 'Sesión eliminada del almacenamiento local. Memoria liberada.',
+          type: 'info',
+        })
+      } else if (detail.type === 'all-cleared') {
+        setSyncMessage({
+          text: 'Se ha liberado todo el almacenamiento offline de este dispositivo.',
+          type: 'info',
+        })
+      }
+    }
+
     window.addEventListener('online', handleOnline)
     window.addEventListener('offline', handleOffline)
-
-    // Initial sync on mount
-    triggerSync()
+    window.addEventListener('knoten:download-updated', handleDownloadUpdated)
 
     return () => {
       window.removeEventListener('online', handleOnline)
       window.removeEventListener('offline', handleOffline)
+      window.removeEventListener('knoten:download-updated', handleDownloadUpdated)
     }
   }, [])
 
-  const triggerSync = async () => {
-    if (!navigator.onLine) return
-
-    setIsSyncing(true)
-    try {
-      const result: SyncResult = await syncOfflineContent()
-      if (result.success && !result.offline) {
-        if (result.newActivitiesCount > 0 || result.updatedActivitiesCount > 0) {
-          setSyncMessage({
-            text: `Contenido descargado correctamente: ${result.newActivitiesCount} actividades nuevas y ${result.updatedActivitiesCount} actualizadas. Listo para usar sin conexión.`,
-            type: 'success',
-          })
-        } else if (result.totalActivitiesCount > 0) {
-          setSyncMessage({
-            text: `Contenido sincronizado correctamente: ${result.totalSessionsCount} sesiones y ${result.totalActivitiesCount} actividades listas para uso offline.`,
-            type: 'success',
-          })
-        }
-      }
-    } catch {
-      // Sincronización silenciosa en background
-    } finally {
-      setIsSyncing(false)
-    }
-  }
-
-  // Auto-dismiss success messages after 6s (offline stays while disconnected)
+  // Auto-dismiss success/info messages after 5s (offline stays while disconnected)
   useEffect(() => {
-    if (syncMessage?.type === 'success') {
+    if (syncMessage?.type === 'success' || syncMessage?.type === 'info') {
       const timer = setTimeout(() => {
         setSyncMessage(null)
-      }, 6000)
+      }, 5000)
       return () => clearTimeout(timer)
     }
   }, [syncMessage])
@@ -94,6 +96,8 @@ export default function SyncNotification() {
           ? 'bg-zinc-900/95 text-white border-zinc-700'
           : syncMessage.type === 'success'
           ? 'bg-white/95 text-zinc-800 border-zinc-200'
+          : syncMessage.type === 'info'
+          ? 'bg-zinc-900/95 text-zinc-100 border-zinc-700'
           : 'bg-zinc-50/95 text-zinc-700 border-zinc-300'
       )}
     >
@@ -102,6 +106,8 @@ export default function SyncNotification() {
           <WifiOff className="w-4 h-4 text-amber-400" />
         ) : syncMessage.type === 'success' ? (
           <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+        ) : syncMessage.type === 'info' ? (
+          <HardDrive className="w-4 h-4 text-zinc-400" />
         ) : (
           <RefreshCw className="w-4 h-4 text-zinc-500 animate-spin" />
         )}
@@ -112,7 +118,7 @@ export default function SyncNotification() {
       <button
         type="button"
         onClick={() => setSyncMessage(null)}
-        className="text-zinc-400 hover:text-zinc-600 dark:hover:text-white p-1 rounded-md transition shrink-0"
+        className="text-zinc-400 hover:text-zinc-600 dark:hover:text-white p-1 rounded-md transition shrink-0 cursor-pointer"
         title="Cerrar"
       >
         <X className="w-3.5 h-3.5" />

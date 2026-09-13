@@ -3,12 +3,16 @@ import { supabaseAdmin } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { searchParams } = new URL(request.url)
+    const cursoId = searchParams.get('cursoId')
+    const sessionId = searchParams.get('sessionId')
+
     const supabase = supabaseAdmin
 
     // 1. Fetch courses with professor profile info
-    const { data: courses, error: coursesError } = await supabase
+    let coursesQuery = supabase
       .from('courses')
       .select(`
         id,
@@ -22,22 +26,39 @@ export async function GET() {
         )
       `)
 
+    if (cursoId) {
+      coursesQuery = coursesQuery.eq('id', cursoId)
+    }
+
+    const { data: courses, error: coursesError } = await coursesQuery
+
     if (coursesError) {
       return NextResponse.json({ error: coursesError.message }, { status: 500 })
     }
 
     // 2. Fetch sessions
-    const { data: sessions, error: sessionsError } = await supabase
+    let sessionsQuery = supabase
       .from('sessions')
       .select('id, curso_id, nombre, tipo, fecha_liberacion, orden, created_at')
       .order('orden', { ascending: true })
+
+    if (sessionId) {
+      sessionsQuery = sessionsQuery.eq('id', sessionId)
+    } else if (cursoId) {
+      sessionsQuery = sessionsQuery.eq('curso_id', cursoId)
+    }
+
+    const { data: sessions, error: sessionsError } = await sessionsQuery
 
     if (sessionsError) {
       return NextResponse.json({ error: sessionsError.message }, { status: 500 })
     }
 
+    // Determine session IDs to filter activities
+    const matchingSessionIds = (sessions || []).map((s: any) => s.id)
+
     // 3. Fetch activities with blocks, connections, and session metadata
-    const { data: activities, error: activitiesError } = await supabase
+    let activitiesQuery = supabase
       .from('activities')
       .select(`
         id,
@@ -78,6 +99,15 @@ export async function GET() {
         )
       `)
       .order('orden', { ascending: true })
+
+    if (matchingSessionIds.length > 0) {
+      activitiesQuery = activitiesQuery.in('session_id', matchingSessionIds)
+    } else if (sessionId || cursoId) {
+      // If specific session or course has no sessions, return empty activities
+      activitiesQuery = activitiesQuery.eq('id', '00000000-0000-0000-0000-000000000000')
+    }
+
+    const { data: activities, error: activitiesError } = await activitiesQuery
 
     if (activitiesError) {
       return NextResponse.json({ error: activitiesError.message }, { status: 500 })

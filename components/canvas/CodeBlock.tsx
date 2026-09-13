@@ -7,6 +7,9 @@ export type CodeBlockData = {
   code: string
   state: 'idle' | 'connected' | 'correct' | 'error'
   readOnly?: boolean
+  bump?: number
+  isExiting?: boolean
+  entranceDelay?: number
 }
 
 const borderByState: Record<CodeBlockData['state'], string> = {
@@ -17,14 +20,25 @@ const borderByState: Record<CodeBlockData['state'], string> = {
 }
 
 const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
-  const { code, state } = data
+  const { code, state, bump, isExiting, entranceDelay = 0 } = data
 
   return (
     <div
+      key={bump} // Re-triggers bump animation on change
+      style={{
+        animationDelay: `${entranceDelay}s`,
+      }}
       className={cn(
-        'relative rounded-lg border shadow-sm bg-white min-w-[56px] max-w-[400px] transition-all duration-200 select-none',
+        'relative rounded-lg border shadow-sm bg-white min-w-[56px] max-w-[400px] transition-all duration-200 select-none cursor-grab active:cursor-grabbing',
         borderByState[state],
-        selected && 'ring-2 ring-zinc-400 ring-offset-1',
+        // Cartoon entrance / exit animations
+        isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
+        // Block bump on connection impact
+        bump && 'animate-block-bump',
+        // User selection smooth zoom growth
+        selected
+          ? 'scale-108 shadow-2xl ring-2 ring-zinc-900 ring-offset-2 z-30'
+          : 'hover:scale-[1.02]'
       )}
     >
       {/* Error flash overlay */}

@@ -2,11 +2,15 @@
 import { memo, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { LayoutTemplate, Plus, Minus } from 'lucide-react'
+import { cn } from '@/lib/utils'
 
 export type IndentBlockData = {
   rows?: number
   onResize?: (rows: number) => void
   readOnly?: boolean
+  bump?: number
+  isExiting?: boolean
+  entranceDelay?: number
 }
 
 // Exactly matching LineRailNode's vertical dimensions (36px header, 64px per row, 36px footer)
@@ -14,9 +18,10 @@ const ROW_HEIGHT = 64
 const HEADER_HEIGHT = 36
 const FOOTER_HEIGHT = 36
 
-const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
+const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) => {
   const [rows, setRows] = useState<number>(data?.rows ?? 1)
   const updateNodeInternals = useUpdateNodeInternals()
+  const { bump, isExiting, entranceDelay = 0 } = data || {}
 
   const totalHeight = rows * ROW_HEIGHT
 
@@ -41,8 +46,19 @@ const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
 
   return (
     <div
-      className="relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all"
-      style={{ height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT }}
+      key={bump}
+      style={{
+        height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT,
+        animationDelay: `${entranceDelay}s`,
+      }}
+      className={cn(
+        'relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all cursor-grab active:cursor-grabbing',
+        isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
+        bump && 'animate-block-bump',
+        selected
+          ? 'scale-106 shadow-2xl ring-2 ring-zinc-900 ring-offset-2 z-30'
+          : 'hover:scale-[1.01]'
+      )}
     >
       {/* Header (36px - matches LineRailNode header) */}
       <div className="h-[36px] flex items-center justify-between px-2.5 border-b border-zinc-300 bg-zinc-300/40 rounded-t-2xl">

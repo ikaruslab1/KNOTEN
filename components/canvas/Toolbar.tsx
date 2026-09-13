@@ -102,13 +102,15 @@ export default function Toolbar({
       {/* Main Toolbar Container */}
       <div
         className={cn(
-          'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 transform',
-          // Desktop: centered at top
-          'sm:top-4 sm:bottom-auto sm:left-1/2 sm:-translate-x-1/2',
+          'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 transform select-none',
+          // Desktop: centered at top with slide-down-fade
+          'sm:top-4 sm:bottom-auto sm:left-1/2 sm:-translate-x-1/2 sm:animate-slide-down-fade',
           // Mobile: floating above bottom edge for thumb reach
           'bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-20px)]',
-          // Mobile folded state
-          isMobileFolded && 'translate-y-28 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto'
+          // Mobile folded state vs expanded slide up
+          isMobileFolded
+            ? 'translate-y-28 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto'
+            : 'animate-slide-up-fade sm:animate-slide-down-fade'
         )}
       >
         {/* Center */}
