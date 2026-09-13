@@ -46,18 +46,14 @@ Infinite canvases require maximum screen real estate. On mobile devices (360pxâ€
 ## 2. Core Responsive Principles for Canvas Platforms
 
 ### A. Breakpoints & Viewport Segments
-1. **Mobile (`< 640px` / `< 768px`)**:
-   - **Collapsible UI**: Navbar and Toolbar must be foldable independently or with a unified focus mode.
-   - **Positioning**: Navigation stays at top; toolbar moves to bottom (natural thumb reach zone).
+1. **Mobile & Tablet (including Tablet Landscape, `< 1280px` / `< xl`)**:
+   - **Collapsible UI**: Navbar (top) and Toolbar (bottom) are independently foldable with toggle triggers and floating pills (`ChevronUp`/`ChevronDown`).
+   - **Positioning**: Navigation stays at top-left; toolbar docks at bottom-center (avoids top-center overlap with navbar courses/activities).
+   - **Dropdowns**: Positioned cleanly with floating overlays (`fixed top-14 left-2.5 sm:left-4`).
    - **Target Sizing**: Minimum touch target of 44x44px for primary buttons.
-   - **Handle Expansion**: Invisible touch padding (e.g. 10px-12px visual handle with 24px-32px touch hit area).
 
-2. **Tablet (`768px â€“ 1024px`)**:
-   - **Semi-compact UI**: Navbar and Toolbar can both be at the top, but with adequate horizontal spacing (`gap-3 sm:gap-6`).
-   - **Label Truncation**: Truncate long course names (`max-w-[140px] sm:max-w-[220px]`).
-
-3. **Desktop (`> 1024px`)**:
-   - Fixed floating layout with full tooltips, expanded labels, and keyboard shortcuts.
+2. **Desktop (`>= 1280px` / `xl`)**:
+   - Fixed floating layout with top-center toolbar and top-left navigation, full tooltips, and expanded labels.
 
 ---
 

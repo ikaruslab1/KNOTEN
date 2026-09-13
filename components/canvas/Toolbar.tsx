@@ -235,18 +235,17 @@ export default function Toolbar({
 
   return (
     <>
-      {/* Main Toolbar Container */}
       <div
         className={cn(
           'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 transform select-none',
-          // Desktop: centered at top with slide-down-fade
-          'sm:top-4 sm:bottom-auto sm:left-1/2 sm:-translate-x-1/2 sm:animate-slide-down-fade',
-          // Mobile: floating above bottom edge for thumb reach
+          // Desktop (xl: >= 1280px): centered at top with slide-down-fade
+          'xl:top-4 xl:bottom-auto xl:left-1/2 xl:-translate-x-1/2 xl:animate-slide-down-fade',
+          // Mobile and Tablet: floating above bottom edge for thumb reach
           'bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-20px)]',
-          // Mobile folded state vs expanded slide up
+          // Mobile & Tablet folded state vs expanded slide up
           isMobileFolded
-            ? 'translate-y-28 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto'
-            : 'animate-slide-up-fade sm:animate-slide-down-fade'
+            ? 'translate-y-28 opacity-0 pointer-events-none xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto'
+            : 'animate-slide-up-fade xl:animate-slide-down-fade'
         )}
       >
         {/* Center */}
@@ -264,7 +263,7 @@ export default function Toolbar({
               className={cn(
                 "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-2xl p-3 w-[295px] sm:w-[335px] max-h-[400px] sm:max-h-[460px] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-2.5",
                 "bottom-18 left-1/2 -translate-x-1/2",
-                "sm:bottom-auto sm:top-16 sm:left-1/2 sm:-translate-x-1/2"
+                "xl:bottom-auto xl:top-16 xl:left-1/2 xl:-translate-x-1/2"
               )}
             >
               {/* Category 1: Emotes */}
@@ -393,7 +392,7 @@ export default function Toolbar({
                 className={cn(
                   "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-150",
                   "bottom-18 left-1/2 -translate-x-1/2",
-                  "sm:bottom-auto sm:top-16 sm:left-1/2 sm:-translate-x-1/2"
+                  "xl:bottom-auto xl:top-16 xl:left-1/2 xl:-translate-x-1/2"
                 )}
               >
                 <span className="text-[10px] font-bold text-zinc-400 px-2.5 py-1 uppercase tracking-wider font-mono">
@@ -482,14 +481,14 @@ export default function Toolbar({
           <BookOpen size={17} />
         </IconBtn>
 
-        {/* Mobile Fold Button */}
+        {/* Mobile / Tablet Fold Button */}
         {onToggleMobileFold && (
           <>
             <Divider />
             <button
               type="button"
               onClick={onToggleMobileFold}
-              className="sm:hidden flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition shrink-0"
+              className="xl:hidden flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition shrink-0 cursor-pointer"
               title="Plegar barra de herramientas"
             >
               <ChevronDown size={17} />
@@ -498,12 +497,12 @@ export default function Toolbar({
         )}
       </div>
 
-      {/* Floating trigger pill when mobile toolbar is folded */}
+      {/* Floating trigger pill when mobile/tablet toolbar is folded */}
       {isMobileFolded && onToggleMobileFold && (
         <button
           type="button"
           onClick={onToggleMobileFold}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 sm:hidden flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-900/95 backdrop-blur-md text-white shadow-xl text-xs font-semibold hover:bg-zinc-800 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200 border border-zinc-700"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 xl:hidden flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-900/95 backdrop-blur-md text-white shadow-xl text-xs font-semibold hover:bg-zinc-800 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200 border border-zinc-700 cursor-pointer"
           title="Desplegar herramientas"
         >
           <PlayCircle size={15} className="text-emerald-400" />

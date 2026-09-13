@@ -1724,11 +1724,11 @@ function FlowCanvasInner({
       <div
         className={cn(
           "fixed z-50 flex items-center gap-1.5 sm:gap-2 transition-all duration-300 transform",
-          // Desktop / Tablet
-          "sm:top-4 sm:left-4 sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto",
-          // Mobile: top-2.5 left-2.5 right-2.5 justify-between sm:justify-start sm:right-auto max-w-[calc(100vw-20px)]",
-          "top-2.5 left-2.5 right-2.5 justify-between sm:justify-start sm:right-auto",
-          isMobileNavFolded && "-translate-y-20 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto"
+          // Desktop (xl: >= 1280px)
+          "xl:top-4 xl:left-4 xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto",
+          // Mobile & Tablet: top-2.5 left-2.5 right-2.5 justify-between xl:justify-start xl:right-auto max-w-[calc(100vw-20px)]",
+          "top-2.5 left-2.5 right-2.5 justify-between xl:justify-start xl:right-auto",
+          isMobileNavFolded && "-translate-y-20 opacity-0 pointer-events-none xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto"
         )}
       >
         <div className="flex items-center gap-1.5 py-0.5">
@@ -1738,7 +1738,7 @@ function FlowCanvasInner({
             title="Volver al curso"
           >
             <ChevronLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">{courseName ? courseName : 'Volver al curso'}</span>
+            <span className="hidden sm:inline truncate max-w-[140px] md:max-w-[220px]">{courseName ? courseName : 'Volver al curso'}</span>
             <span className="sm:hidden">Curso</span>
           </Link>
 
@@ -1753,7 +1753,7 @@ function FlowCanvasInner({
                 {isCurrentCompleted && (
                   <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
                 )}
-                <span className="max-w-[100px] sm:max-w-none truncate">{currentDisplayTitle}</span>
+                <span className="max-w-[100px] sm:max-w-[180px] xl:max-w-none truncate">{currentDisplayTitle}</span>
               </div>
               <ChevronDown
                 className={cn(
@@ -1768,9 +1768,9 @@ function FlowCanvasInner({
                 className={cn(
                   "bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border border-zinc-200 py-2.5 z-[70] overflow-hidden text-xs sm:text-sm animate-dropdown-in",
                   // Mobile and tablet: generous floating overlay positioned below top bar
-                  "fixed top-14 left-2.5 right-2.5 max-w-sm sm:max-w-md md:max-w-sm",
+                  "fixed top-14 left-2.5 right-2.5 max-w-sm sm:max-w-md",
                   // Desktop: attached directly below trigger button
-                  "lg:absolute lg:top-full lg:left-0 lg:right-auto lg:mt-1.5 lg:w-80"
+                  "xl:absolute xl:top-full xl:left-0 xl:right-auto xl:mt-1.5 xl:w-80"
                 )}
               >
                 <div className="px-4 py-2 border-b border-zinc-100 text-xs font-semibold text-zinc-500 flex items-center justify-between">
@@ -1866,27 +1866,27 @@ function FlowCanvasInner({
           )}
         </div>
 
-        {/* Mobile Navbar Fold Button */}
+        {/* Mobile / Tablet Navbar Fold Button */}
         <button
           type="button"
           onClick={() => setIsMobileNavFolded(true)}
-          className="sm:hidden flex items-center justify-center w-8 h-8 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-500 hover:text-zinc-900 shadow-sm shrink-0 transition"
+          className="xl:hidden flex items-center justify-center w-8 h-8 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-500 hover:text-zinc-900 shadow-sm shrink-0 transition cursor-pointer"
           title="Plegar barra superior"
         >
           <ChevronUp className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Floating pill when mobile navbar is folded */}
+      {/* Floating pill when mobile/tablet navbar is folded */}
       {isMobileNavFolded && (
         <button
           type="button"
           onClick={() => setIsMobileNavFolded(false)}
-          className="fixed top-2.5 left-2.5 z-50 sm:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-zinc-200 text-zinc-800 shadow-md text-xs font-semibold animate-in fade-in zoom-in-95 duration-150"
+          className="fixed top-2.5 left-2.5 z-50 xl:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-zinc-200 text-zinc-800 shadow-md text-xs font-semibold animate-in fade-in zoom-in-95 duration-150 cursor-pointer"
           title="Desplegar navegación"
         >
           <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-          <span className="truncate max-w-[120px]">{currentDisplayTitle}</span>
+          <span className="truncate max-w-[140px] sm:max-w-[260px]">{currentDisplayTitle}</span>
         </button>
       )}
 
