@@ -2,7 +2,7 @@ import { Layers } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import { NavBar } from '@/components/ui/NavBar';
 import CourseIndexGrid, { CourseItem } from '@/components/courses/CourseIndexGrid';
-import AnimatedNodesBadge from '@/components/ui/AnimatedNodesBadge';
+import InteractiveHeroWords from '@/components/home/InteractiveHeroWords';
 
 export const revalidate = 30;
 
@@ -30,21 +30,19 @@ export default async function HomePage() {
   }));
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 overflow-x-hidden">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 relative">
       {/* Dynamic Navigation Bar */}
       <NavBar />
 
       {/* Hero Section */}
-      <section className="bg-white py-12 sm:py-20 px-4 sm:px-6 text-center border-b border-zinc-200 overflow-hidden">
-        <div className="max-w-3xl mx-auto space-y-4">
+      <section className="bg-white py-12 sm:py-18 px-4 sm:px-6 text-center border-b border-zinc-200 relative overflow-visible z-10">
+        <div className="max-w-4xl mx-auto space-y-4 overflow-visible">
           <div className="animate-slide-up-fade inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-xs font-semibold uppercase tracking-wider text-zinc-700">
             <Layers className="w-3.5 h-3.5" />
             Programación visual e interactiva
           </div>
 
-          <h1 className="animate-slide-up-fade text-3xl sm:text-6xl font-black text-zinc-900 tracking-tight leading-tight [animation-delay:120ms]">
-            Aprende Python mediante <AnimatedNodesBadge />
-          </h1>
+          <InteractiveHeroWords />
 
           <p className="animate-slide-up-fade text-sm sm:text-lg text-zinc-600 max-w-xl mx-auto [animation-delay:200ms]">
             Conecta bloques de código, visualiza la estructura de indentación y domina la sintaxis en un lienzo infinito.

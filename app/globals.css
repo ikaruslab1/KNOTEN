@@ -301,3 +301,137 @@ body {
     transform: translateY(-50%) !important;
   }
 }
+
+/* ─── React Flow NodeResizer controls ────────────────────────────────────────── */
+.react-flow__resize-control {
+  position: absolute;
+}
+
+.react-flow__resize-control.left,
+.react-flow__resize-control.right {
+  cursor: ew-resize;
+}
+
+.react-flow__resize-control.top,
+.react-flow__resize-control.bottom {
+  cursor: ns-resize;
+}
+
+.react-flow__resize-control.top.left,
+.react-flow__resize-control.bottom.right {
+  cursor: nwse-resize;
+}
+
+.react-flow__resize-control.bottom.left,
+.react-flow__resize-control.top.right {
+  cursor: nesw-resize;
+}
+
+.react-flow__resize-control.handle {
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid #27272a;
+  border-radius: 2px;
+  background-color: #ffffff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+  transition: transform 0.1s ease;
+}
+
+.react-flow__resize-control.handle:hover {
+  transform: translate(-50%, -50%) scale(1.35);
+  background-color: #f4f4f5;
+}
+
+.react-flow__resize-control.handle.left { left: 0; top: 50%; }
+.react-flow__resize-control.handle.right { left: 100%; top: 50%; }
+.react-flow__resize-control.handle.top { left: 50%; top: 0; }
+.react-flow__resize-control.handle.bottom { left: 50%; top: 100%; }
+.react-flow__resize-control.handle.top.left { left: 0; }
+.react-flow__resize-control.handle.bottom.left { left: 0; }
+.react-flow__resize-control.handle.top.right { left: 100%; }
+.react-flow__resize-control.handle.bottom.right { left: 100%; }
+
+.react-flow__resize-control.line {
+  border-color: #a1a1aa;
+  border-width: 0;
+  border-style: dashed;
+}
+
+.react-flow__resize-control.line.left,
+.react-flow__resize-control.line.right {
+  width: 2px;
+  transform: translate(-50%, 0);
+  top: 0;
+  height: 100%;
+}
+
+.react-flow__resize-control.line.left { left: 0; border-left-width: 2px; }
+.react-flow__resize-control.line.right { left: 100%; border-right-width: 2px; }
+
+.react-flow__resize-control.line.top,
+.react-flow__resize-control.line.bottom {
+  height: 2px;
+  transform: translate(0, -50%);
+  left: 0;
+  width: 100%;
+}
+
+.react-flow__resize-control.line.top { top: 0; border-top-width: 2px; }
+.react-flow__resize-control.line.bottom { border-bottom-width: 2px; top: 100%; }
+
+/* ─── Animated Rainbow Rectangle ─────────────────────────────────────────────── */
+@keyframes rainbowFlow {
+  0% {
+    background-position: 0% 50%, 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%, 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%, 0% 50%;
+  }
+}
+
+@keyframes rainbowGlow {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(239, 68, 68, 0.28), 0 0 28px rgba(59, 130, 246, 0.2);
+  }
+  33% {
+    box-shadow: 0 0 16px rgba(16, 185, 129, 0.28), 0 0 28px rgba(245, 158, 11, 0.2);
+  }
+  66% {
+    box-shadow: 0 0 16px rgba(168, 85, 247, 0.28), 0 0 28px rgba(236, 72, 153, 0.2);
+  }
+}
+
+.rainbow-rectangle-border {
+  border: 3px solid transparent;
+  background:
+    linear-gradient(
+      135deg,
+      rgba(239, 68, 68, 0.04),
+      rgba(249, 115, 22, 0.04),
+      rgba(245, 158, 11, 0.04),
+      rgba(16, 185, 129, 0.04),
+      rgba(59, 130, 246, 0.04),
+      rgba(168, 85, 247, 0.04),
+      rgba(236, 72, 153, 0.04),
+      rgba(239, 68, 68, 0.04)
+    ) padding-box,
+    linear-gradient(
+      135deg,
+      #ef4444,
+      #f97316,
+      #f59e0b,
+      #10b981,
+      #3b82f6,
+      #8b5cf6,
+      #ec4899,
+      #ef4444
+    ) border-box;
+  background-size: 300% 300%, 300% 300%;
+  animation: rainbowFlow 3.5s linear infinite, rainbowGlow 3.5s ease-in-out infinite;
+}
+

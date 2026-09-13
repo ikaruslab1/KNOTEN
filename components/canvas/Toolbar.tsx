@@ -10,6 +10,7 @@ import {
   ChevronUp,
   Magnet,
   AlignCenterHorizontal,
+  RectangleHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -29,6 +30,7 @@ type ToolbarProps = {
   onCenter: () => void
   onAddSticker: (sticker: StickerItem | string) => void
   onAddIndentBlock: () => void
+  onAddRectangle?: () => void
   smartGuidesEnabled?: boolean
   onToggleSmartGuides?: () => void
   onAlignLine?: (lineNum?: number) => void
@@ -195,6 +197,7 @@ export default function Toolbar({
   onCenter,
   onAddSticker,
   onAddIndentBlock,
+  onAddRectangle,
   smartGuidesEnabled = true,
   onToggleSmartGuides,
   onAlignLine,
@@ -347,6 +350,13 @@ export default function Toolbar({
         <IconBtn onClick={onAddIndentBlock} title="Agregar bloque de indentación">
           <LayoutTemplate size={17} />
         </IconBtn>
+
+        {/* Rectangle shape tool */}
+        {onAddRectangle && (
+          <IconBtn onClick={onAddRectangle} title="Crear figura rectangular">
+            <RectangleHorizontal size={17} />
+          </IconBtn>
+        )}
 
         {/* Smart Guides Toggle */}
         {onToggleSmartGuides && (

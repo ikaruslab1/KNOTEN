@@ -20,6 +20,7 @@ import ReactFlow, {
   Connection,
   Edge,
   Node,
+  NodeChange,
 } from "reactflow"
 import "reactflow/dist/style.css"
 import confetti from "canvas-confetti"
@@ -32,6 +33,7 @@ import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
 import LineRailNode from "./LineRailNode"
+import RectangleNode from "./RectangleNode"
 import Toolbar, { StickerItem } from "./Toolbar"
 import ElasticConnectionLine from "./ElasticConnectionLine"
 import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
@@ -247,6 +249,7 @@ const nodeTypes = {
   indentBlock: IndentBlock,
   sticker: StickerNode,
   lineRail: LineRailNode,
+  rectangleShape: RectangleNode,
 }
 
 const edgeTypes = {
@@ -351,7 +354,7 @@ function blocksToNodes(blocks: Block[]): Node[] {
 
 function getStudentBlockOrder(edges: Edge[], nodes: Node[]): string[] {
   const codeNodeIds = new Set(
-    nodes.filter((n) => n.type !== 'sticker').map((n) => n.id)
+    nodes.filter((n) => n.type === 'codeBlock' || n.type === 'indentBlock').map((n) => n.id)
   )
 
   const nextMap = new Map<string, string>()
@@ -404,10 +407,84 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
     }
     return { width: 64 * scale, height: 64 * scale }
   }
+  if (node.type === "rectangleShape") {
+    const w = node.width ?? (typeof node.style?.width === 'number' ? node.style.width : parseFloat(String(node.style?.width || node.data?.width || 260)))
+    const h = node.height ?? (typeof node.style?.height === 'number' ? node.style.height : parseFloat(String(node.style?.height || node.data?.height || 180)))
+    return {
+      width: Number.isNaN(w) ? 260 : w,
+      height: Number.isNaN(h) ? 180 : h,
+    }
+  }
   // codeBlock default estimate
   const code = String(node.data?.code ?? "")
   const estWidth = Math.max(70, 44 + code.length * 8.5)
   return { width: estWidth, height: 42 }
+}
+
+// ─── Helper: Block Stickers Color & Pride Rainbow Mapping ─────────────────────
+
+const BLOCK_COLOR_MAP: Record<string, { border: string; bg: string }> = {
+  'block-variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' },
+  'block-operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' },
+  'block-condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' },
+  'block-bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' },
+  'block-funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
+  'block-clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' },
+  'block-modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
+  'block-excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
+  'variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' },
+  'operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' },
+  'condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' },
+  'bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' },
+  'función': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
+  'funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
+  'clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' },
+  'módulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
+  'modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
+  'excepción': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
+  'excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
+}
+
+function getStickerEffect(sticker: Node): { type: 'rainbow' } | { type: 'block'; border: string; bg: string } | null {
+  const data = sticker.data || {}
+
+  // 1. Check gay flag sticker (pride)
+  if (
+    data.id === 'pride' ||
+    data.emoji === '🏳️‍🌈' ||
+    data.label?.toLowerCase()?.includes('bandera gay')
+  ) {
+    return { type: 'rainbow' }
+  }
+
+  // 2. Reject non-block categories strictly (e.g. emotes and datos)
+  if (data.category && data.category !== 'bloques') {
+    return null
+  }
+
+  // 3. Match block sticker by ID or text
+  const idKey = typeof data.id === 'string' ? data.id.toLowerCase() : ''
+  const textKey = typeof data.text === 'string' ? data.text.toLowerCase().trim() : ''
+
+  if (BLOCK_COLOR_MAP[idKey]) {
+    return { type: 'block', ...BLOCK_COLOR_MAP[idKey] }
+  }
+  if (BLOCK_COLOR_MAP[textKey]) {
+    return { type: 'block', ...BLOCK_COLOR_MAP[textKey] }
+  }
+
+  if (typeof data.borderClass === 'string') {
+    if (data.borderClass.includes('red')) return { type: 'block', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' }
+    if (data.borderClass.includes('pink')) return { type: 'block', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' }
+    if (data.borderClass.includes('emerald')) return { type: 'block', border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' }
+    if (data.borderClass.includes('purple')) return { type: 'block', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' }
+    if (data.borderClass.includes('amber')) return { type: 'block', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' }
+    if (data.borderClass.includes('blue')) return { type: 'block', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' }
+    if (data.borderClass.includes('zinc')) return { type: 'block', border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' }
+    if (data.borderClass.includes('orange')) return { type: 'block', border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' }
+  }
+
+  return null
 }
 
 // ─── Component: Smart Guides overlay ──────────────────────────────────────────
@@ -542,8 +619,109 @@ function FlowCanvasInner({
     })
   }, [])
 
+  // ── Collision Detection between Rectangles and Qualifying Stickers ──────────
+  const updateRectangleCollisions = useCallback((currentNodes: Node[]) => {
+    const rectNodes = currentNodes.filter((n) => n.type === "rectangleShape")
+    if (rectNodes.length === 0) return
+
+    const stickerNodes = currentNodes.filter((n) => n.type === "sticker")
+    let hasChanges = false
+
+    const updated = currentNodes.map((node) => {
+      if (node.type !== "rectangleShape") return node
+
+      const rDim = getNodeDimensions(node)
+      const rX = node.position.x
+      const rY = node.position.y
+      const rRight = rX + rDim.width
+      const rBottom = rY + rDim.height
+
+      let isRainbow = false
+      let activeColor: string | null = null
+      let activeBg: string | null = null
+
+      for (const sticker of stickerNodes) {
+        const sDim = getNodeDimensions(sticker)
+        const sX = sticker.position.x
+        const sY = sticker.position.y
+        const sRight = sX + sDim.width
+        const sBottom = sY + sDim.height
+
+        const collides = rX < sRight && rRight > sX && rY < sBottom && rBottom > sY
+
+        if (collides) {
+          const effect = getStickerEffect(sticker)
+          if (effect?.type === 'rainbow') {
+            isRainbow = true
+            break // rainbow has highest precedence!
+          } else if (effect?.type === 'block') {
+            activeColor = effect.border
+            activeBg = effect.bg
+          }
+        }
+      }
+
+      const currRainbow = Boolean(node.data?.isRainbow)
+      const currBorder = node.data?.activeBorderColor || null
+      const currBg = node.data?.activeBgColor || null
+
+      const nextBorder = isRainbow ? null : activeColor
+      const nextBg = isRainbow ? null : activeBg
+
+      if (currRainbow !== isRainbow || currBorder !== nextBorder || currBg !== nextBg) {
+        hasChanges = true
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            isRainbow,
+            activeBorderColor: nextBorder,
+            activeBgColor: nextBg,
+          },
+        }
+      }
+
+      return node
+    })
+
+    if (hasChanges) {
+      setNodes(updated)
+    }
+  }, [setNodes])
+
+  // Re-check collisions when nodes are added or removed
+  useEffect(() => {
+    updateRectangleCollisions(nodes)
+  }, [nodes.length, updateRectangleCollisions])
+
+  const handleNodesChange = useCallback(
+    (changes: NodeChange[]) => {
+      onNodesChange(changes)
+      const hasDimOrRemove = changes.some(
+        (c) => c.type === "dimensions" || c.type === "remove"
+      )
+      if (hasDimOrRemove) {
+        setTimeout(() => {
+          setNodes((currentNodes) => {
+            updateRectangleCollisions(currentNodes)
+            return currentNodes
+          })
+        }, 10)
+      }
+    },
+    [onNodesChange, updateRectangleCollisions, setNodes]
+  )
+
   const onNodeDrag = useCallback(
     (_: React.MouseEvent, draggedNode: Node) => {
+      // Check collisions in real-time while dragging stickers or rectangles
+      if (draggedNode.type === "sticker" || draggedNode.type === "rectangleShape") {
+        const nodesWithDragged = nodes.map((n) =>
+          n.id === draggedNode.id ? draggedNode : n
+        )
+        updateRectangleCollisions(nodesWithDragged)
+      }
+
       if (!smartGuidesEnabled) {
         if (guideLines.x !== null || guideLines.y !== null) {
           setGuideLines({ x: null, y: null })
@@ -599,12 +777,13 @@ function FlowCanvasInner({
         return { x: matchedGuideX, y: matchedGuideY }
       })
     },
-    [smartGuidesEnabled, nodes]
+    [smartGuidesEnabled, nodes, updateRectangleCollisions]
   )
 
   const onNodeDragStop = useCallback(() => {
     setGuideLines({ x: null, y: null })
-  }, [])
+    updateRectangleCollisions(nodes)
+  }, [nodes, updateRectangleCollisions])
 
   // ── Horizontal alignment for rows of code ──────────────────────────────────
   const alignLine = useCallback(
@@ -956,8 +1135,11 @@ function FlowCanvasInner({
   const onAddSticker = useCallback((sticker: StickerItem | string) => {
     const isString = typeof sticker === 'string'
     const stickerData = isString
-      ? { variant: 'emoji', emoji: sticker, scale: 1 }
+      ? { id: 'custom', variant: 'emoji', emoji: sticker, scale: 1 }
       : {
+          id: sticker.id,
+          category: sticker.category,
+          label: sticker.label,
           variant: sticker.variant || (sticker.emoji ? 'emoji' : 'badge'),
           emoji: sticker.emoji,
           text: sticker.text,
@@ -972,6 +1154,25 @@ function FlowCanvasInner({
       type: "sticker",
       position: { x: 250 + Math.random() * 40, y: 150 + Math.random() * 40 },
       data: stickerData,
+      zIndex: 10,
+    }
+    setNodes((nds) => [...nds, newNode])
+  }, [setNodes])
+
+  const onAddRectangle = useCallback(() => {
+    const newNode: Node = {
+      id: `rectangle-${Date.now()}`,
+      type: "rectangleShape",
+      position: { x: 280 + Math.random() * 30, y: 160 + Math.random() * 30 },
+      style: { width: 260, height: 180 },
+      data: {
+        width: 260,
+        height: 180,
+        isRainbow: false,
+        activeBorderColor: null,
+        activeBgColor: null,
+      },
+      zIndex: 0,
     }
     setNodes((nds) => [...nds, newNode])
   }, [setNodes])
@@ -1696,6 +1897,7 @@ function FlowCanvasInner({
         onCenter={onCenter}
         onAddSticker={onAddSticker}
         onAddIndentBlock={onAddIndentBlock}
+        onAddRectangle={onAddRectangle}
         smartGuidesEnabled={smartGuidesEnabled}
         onToggleSmartGuides={handleToggleSmartGuides}
         onAlignLine={alignLine}
@@ -1709,7 +1911,7 @@ function FlowCanvasInner({
       <ReactFlow
         nodes={nodes}
         edges={edges}
-        onNodesChange={onNodesChange}
+        onNodesChange={handleNodesChange}
         onEdgesChange={handleEdgesChange}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
