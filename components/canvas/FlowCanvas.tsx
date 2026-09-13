@@ -1267,8 +1267,8 @@ function FlowCanvasInner({
     const studentBlockOrder = getStudentBlockOrder(edges, nodes)
     const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
 
-    // Local offline validation fallback if disconnected from internet
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    // Helper for applying local offline Python validation
+    const runOfflineValidation = () => {
       const codeBlocks = blocks.filter((b) => b.tipo !== 'sticker')
       const correctBlockIds = [...codeBlocks]
         .sort((a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0))
@@ -1349,7 +1349,6 @@ function FlowCanvasInner({
           spread: 80,
           origin: { y: 0.6 },
         })
-        return
       } else {
         setTerminalStatus("error")
         const errorLines = comp.responseMessage
@@ -1378,23 +1377,49 @@ function FlowCanvasInner({
             }))
           )
         }, 1000)
-        return
       }
     }
 
     try {
-      const res = await fetch("/api/validate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          activityId,
-          studentConnections,
-          studentBlockOrder,
-          reconstructedCode,
-        }),
-      })
+      const isDefinitelyOffline = typeof navigator !== 'undefined' && !navigator.onLine
+
+      if (isDefinitelyOffline) {
+        runOfflineValidation()
+        return
+      }
+
+      // Online validation attempt
+      let res: Response
+      try {
+        res = await fetch("/api/validate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            activityId,
+            studentConnections,
+            studentBlockOrder,
+            reconstructedCode,
+          }),
+        })
+      } catch (networkErr) {
+        // Fall back seamlessly to offline evaluation if network request fails
+        console.warn("Network error reaching /api/validate, falling back to offline evaluator:", networkErr)
+        runOfflineValidation()
+        return
+      }
+
+      if (!res.ok) {
+        // If status is 503 (offline SW response) or server error, fall back to offline evaluation
+        runOfflineValidation()
+        return
+      }
 
       const json = await res.json()
+
+      if (json.offline) {
+        runOfflineValidation()
+        return
+      }
 
       if (json.success) {
         // ── SUCCESS ──────────────────────────────────────────────────────────
@@ -1473,15 +1498,17 @@ function FlowCanvasInner({
     } catch (err) {
       setTerminalStatus("error")
       setTerminalLines([
-        "Error de red: no se pudo conectar con el servidor",
-        "Comprueba tu conexión e intenta de nuevo",
+        "Error de ejecución",
+        "Por favor intenta de nuevo",
       ])
     } finally {
       setIsExecuting(false)
     }
   }, [
     activityId,
+    blocks,
     canExecute,
+    connections,
     edges,
     isExecuting,
     nodes,

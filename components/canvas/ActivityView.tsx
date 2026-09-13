@@ -122,11 +122,12 @@ export default function ActivityView({
         console.warn('Could not read activity from IndexedDB:', err)
       }
 
-      // 4. Fetch directly from Supabase on client if not in IndexedDB
-      try {
-        const supabase = createClient()
-        const { data: act, error } = await supabase
-          .from('activities')
+      // 4. Fetch directly from Supabase on client if not in IndexedDB (only if online)
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        try {
+          const supabase = createClient()
+          const { data: act, error } = await supabase
+            .from('activities')
           .select(`
             id,
             titulo,
@@ -259,8 +260,9 @@ export default function ActivityView({
           setErrorMsg('La actividad que buscas no existe o fue eliminada.')
           return
         }
-      } catch (clientErr) {
-        console.warn('Client-side Supabase fetch failed:', clientErr)
+        } catch (clientErr) {
+          console.warn('Client-side Supabase fetch failed:', clientErr)
+        }
       }
 
       // 5. Fallback if initialActivity was provided but ID differed

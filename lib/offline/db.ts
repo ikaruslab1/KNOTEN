@@ -6,6 +6,7 @@
 
 const DB_NAME = 'knoten_offline_db'
 const DB_VERSION = 1
+export const OFFLINE_CACHE_NAME = 'knoten-cache-v3'
 
 export interface OfflineCourse {
   id: string
@@ -74,12 +75,18 @@ export interface SyncMetadata {
   total_courses: number
 }
 
-function openDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (typeof window === 'undefined' || !window.indexedDB) {
-      return reject(new Error('IndexedDB not supported in this environment'))
-    }
+let cachedDbPromise: Promise<IDBDatabase> | null = null
 
+export function openDB(): Promise<IDBDatabase> {
+  if (typeof window === 'undefined' || !window.indexedDB) {
+    return Promise.reject(new Error('IndexedDB not supported in this environment'))
+  }
+
+  if (cachedDbPromise) {
+    return cachedDbPromise
+  }
+
+  cachedDbPromise = new Promise((resolve, reject) => {
     const request = window.indexedDB.open(DB_NAME, DB_VERSION)
 
     request.onupgradeneeded = (event) => {
@@ -108,9 +115,29 @@ function openDB(): Promise<IDBDatabase> {
       }
     }
 
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error)
+    request.onsuccess = () => {
+      const db = request.result
+      db.onversionchange = () => {
+        db.close()
+        cachedDbPromise = null
+      }
+      db.onclose = () => {
+        cachedDbPromise = null
+      }
+      resolve(db)
+    }
+
+    request.onerror = () => {
+      cachedDbPromise = null
+      reject(request.error)
+    }
+
+    request.onblocked = () => {
+      console.warn('IndexedDB connection blocked')
+    }
   })
+
+  return cachedDbPromise
 }
 
 // ─── Courses ──────────────────────────────────────────────────────────────────
@@ -332,7 +359,7 @@ export async function deleteOfflineCourse(cursoId: string): Promise<{ deletedAct
   // 6. Clean up Cache API
   if (typeof window !== 'undefined' && 'caches' in window) {
     try {
-      const cache = await window.caches.open('knoten-cache-v2')
+      const cache = await window.caches.open(OFFLINE_CACHE_NAME)
       await cache.delete(`/curso/${cursoId}`)
       for (const actId of activityIds) {
         await cache.delete(`/actividad/${actId}`)
@@ -401,7 +428,7 @@ export async function deleteOfflineSession(sessionId: string): Promise<{ deleted
   // 4. Clean up Cache API
   if (typeof window !== 'undefined' && 'caches' in window) {
     try {
-      const cache = await window.caches.open('knoten-cache-v2')
+      const cache = await window.caches.open(OFFLINE_CACHE_NAME)
       for (const actId of activityIds) {
         await cache.delete(`/actividad/${actId}`)
       }
@@ -451,7 +478,7 @@ export async function clearAllOfflineStorage(): Promise<void> {
 
   if (typeof window !== 'undefined' && 'caches' in window) {
     try {
-      const cache = await window.caches.open('knoten-cache-v2')
+      const cache = await window.caches.open(OFFLINE_CACHE_NAME)
       const keys = await cache.keys()
       for (const req of keys) {
         const u = new URL(req.url)
@@ -500,7 +527,7 @@ export async function getCourseOfflineStatus(cursoId: string): Promise<{
     }
 
     return {
-      isDownloaded: Boolean(course) || activitiesCount > 0,
+      isDownloaded: activitiesCount > 0 || (Boolean(course) && sessions.length > 0),
       sessionsCount: sessions.length,
       activitiesCount,
     }

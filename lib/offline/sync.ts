@@ -5,6 +5,7 @@ import {
   saveSyncMeta,
   getOfflineActivitiesBySession,
   getOfflineDatabaseStats,
+  OFFLINE_CACHE_NAME,
   OfflineActivity,
   OfflineSession,
   OfflineCourse,
@@ -98,16 +99,8 @@ export async function syncOfflineContent(): Promise<SyncResult> {
     let newActivitiesCount = 0
     let updatedActivitiesCount = 0
 
-    // Compare activities if not first time
     if (!isFirstTimeSync) {
-      // Create set of existing activity IDs
-      for (const incAct of incomingActivities) {
-        // Simple hash comparison or check presence
-        newActivitiesCount++ // Will be adjusted if already existed
-      }
-      // Accurate diffing:
-      const existingActivityIds = new Set<string>()
-      // We can check with openDB or compare directly
+      newActivitiesCount = incomingActivities.length
     } else {
       newActivitiesCount = incomingActivities.length
       updatedActivitiesCount = 0
@@ -118,43 +111,11 @@ export async function syncOfflineContent(): Promise<SyncResult> {
     await saveSessions(incomingSessions)
     await saveActivities(incomingActivities)
 
-    // Pre-cache activity URLs and shells in Cache API for instant offline navigation
-    if (typeof window !== 'undefined' && 'caches' in window) {
-      try {
-        const cache = await window.caches.open('knoten-cache-v2')
-
-        // Precache courses
-        for (const c of incomingCourses) {
-          try {
-            const courseRes = await fetch(`/curso/${c.id}`)
-            if (courseRes.ok) {
-              await cache.put(`/curso/${c.id}`, courseRes.clone())
-              await cache.put('/curso-shell', courseRes.clone())
-            }
-          } catch {}
-        }
-
-        // Precache activities and create generic /actividad-shell
-        for (const act of incomingActivities) {
-          try {
-            const actRes = await fetch(`/actividad/${act.id}`)
-            if (actRes.ok) {
-              await cache.put(`/actividad/${act.id}`, actRes.clone())
-              await cache.put('/actividad-shell', actRes.clone())
-            }
-          } catch {}
-        }
-      } catch (e) {
-        console.warn('Error during offline page pre-caching:', e)
-      }
-    }
-
     const finalStats = await getOfflineDatabaseStats()
 
     if (!isFirstTimeSync) {
       const added = Math.max(0, finalStats.activitiesCount - initialStats.activitiesCount)
       newActivitiesCount = added
-      // If activities were modified (or same count with revisions)
       updatedActivitiesCount = Math.max(0, incomingActivities.length - added)
     }
 
@@ -170,6 +131,39 @@ export async function syncOfflineContent(): Promise<SyncResult> {
       total_sessions: finalStats.sessionsCount,
       total_courses: finalStats.coursesCount,
     })
+
+    // Pre-cache activity URLs and shells in Cache API in background
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      ;(async () => {
+        try {
+          const cache = await window.caches.open(OFFLINE_CACHE_NAME)
+
+          // Precache first course shell
+          if (incomingCourses.length > 0) {
+            try {
+              const courseRes = await fetch(`/curso/${incomingCourses[0].id}`)
+              if (courseRes.ok) {
+                await cache.put(`/curso/${incomingCourses[0].id}`, courseRes.clone())
+                await cache.put('/curso-shell', courseRes.clone())
+              }
+            } catch {}
+          }
+
+          // Precache first activity shell
+          if (incomingActivities.length > 0) {
+            try {
+              const actRes = await fetch(`/actividad/${incomingActivities[0].id}`)
+              if (actRes.ok) {
+                await cache.put(`/actividad/${incomingActivities[0].id}`, actRes.clone())
+                await cache.put('/actividad-shell', actRes.clone())
+              }
+            } catch {}
+          }
+        } catch (e) {
+          console.warn('Error during offline page pre-caching:', e)
+        }
+      })()
+    }
 
     const result: SyncResult = {
       success: true,
@@ -241,30 +235,6 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
     await saveSessions(sessions)
     await saveActivities(activities)
 
-    // Pre-cache into Cache API
-    if ('caches' in window) {
-      try {
-        const cache = await window.caches.open('knoten-cache-v2')
-        const courseRes = await fetch(`/curso/${cursoId}`)
-        if (courseRes.ok) {
-          await cache.put(`/curso/${cursoId}`, courseRes.clone())
-          await cache.put('/curso-shell', courseRes.clone())
-        }
-
-        for (const act of activities) {
-          try {
-            const actRes = await fetch(`/actividad/${act.id}`)
-            if (actRes.ok) {
-              await cache.put(`/actividad/${act.id}`, actRes.clone())
-              await cache.put('/actividad-shell', actRes.clone())
-            }
-          } catch {}
-        }
-      } catch (cacheErr) {
-        console.warn('Cache API precaching error:', cacheErr)
-      }
-    }
-
     const finalStats = await getOfflineDatabaseStats()
     await saveSyncMeta({
       id: 'latest',
@@ -276,6 +246,7 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
       total_courses: finalStats.coursesCount,
     })
 
+    // Dispatch update events immediately so badges update instantly
     window.dispatchEvent(
       new CustomEvent('knoten:download-updated', {
         detail: { type: 'course-downloaded', cursoId, activitiesCount: activities.length },
@@ -286,6 +257,31 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
         detail: { newActivitiesCount: activities.length },
       })
     )
+
+    // Pre-cache into Cache API in background (shells for instant navigation)
+    if ('caches' in window) {
+      ;(async () => {
+        try {
+          const cache = await window.caches.open(OFFLINE_CACHE_NAME)
+          const courseRes = await fetch(`/curso/${cursoId}`)
+          if (courseRes.ok) {
+            await cache.put(`/curso/${cursoId}`, courseRes.clone())
+            await cache.put('/curso-shell', courseRes.clone())
+          }
+
+          if (activities.length > 0) {
+            const firstAct = activities[0]
+            const actRes = await fetch(`/actividad/${firstAct.id}`)
+            if (actRes.ok) {
+              await cache.put(`/actividad/${firstAct.id}`, actRes.clone())
+              await cache.put('/actividad-shell', actRes.clone())
+            }
+          }
+        } catch (cacheErr) {
+          console.warn('Cache API precaching error:', cacheErr)
+        }
+      })()
+    }
 
     return {
       success: true,
@@ -333,24 +329,6 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
     if (sessions.length > 0) await saveSessions(sessions)
     if (activities.length > 0) await saveActivities(activities)
 
-    // Pre-cache into Cache API
-    if ('caches' in window) {
-      try {
-        const cache = await window.caches.open('knoten-cache-v2')
-        for (const act of activities) {
-          try {
-            const actRes = await fetch(`/actividad/${act.id}`)
-            if (actRes.ok) {
-              await cache.put(`/actividad/${act.id}`, actRes.clone())
-              await cache.put('/actividad-shell', actRes.clone())
-            }
-          } catch {}
-        }
-      } catch (cacheErr) {
-        console.warn('Cache API precaching error:', cacheErr)
-      }
-    }
-
     const finalStats = await getOfflineDatabaseStats()
     await saveSyncMeta({
       id: 'latest',
@@ -362,6 +340,7 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
       total_courses: finalStats.coursesCount,
     })
 
+    // Dispatch update events immediately so badge updates instantly
     window.dispatchEvent(
       new CustomEvent('knoten:download-updated', {
         detail: { type: 'session-downloaded', sessionId, activitiesCount: activities.length },
@@ -372,6 +351,23 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
         detail: { newActivitiesCount: activities.length },
       })
     )
+
+    // Pre-cache into Cache API in background (shell for instant offline navigation)
+    if ('caches' in window && activities.length > 0) {
+      ;(async () => {
+        try {
+          const cache = await window.caches.open(OFFLINE_CACHE_NAME)
+          const firstAct = activities[0]
+          const actRes = await fetch(`/actividad/${firstAct.id}`)
+          if (actRes.ok) {
+            await cache.put(`/actividad/${firstAct.id}`, actRes.clone())
+            await cache.put('/actividad-shell', actRes.clone())
+          }
+        } catch (cacheErr) {
+          console.warn('Cache API precaching error:', cacheErr)
+        }
+      })()
+    }
 
     return {
       success: true,
@@ -385,4 +381,5 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
     }
   }
 }
+
 
