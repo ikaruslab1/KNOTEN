@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { Lock, ChevronLeft, Calendar } from 'lucide-react';
-import { createClient } from '@/lib/supabase/server';
+import { createClient, getCurrentProfile } from '@/lib/supabase/server';
 import { NavBar } from '@/components/ui/NavBar';
 import { cn } from '@/lib/utils';
 
@@ -128,46 +128,33 @@ export default async function CoursePage({
   const { id } = await params;
   const supabase = await createClient();
 
-  // Get current user
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Fetch course + sessions + first activity per session
-  const { data: rawCourse } = await supabase
-    .from('courses')
-    .select(`
-      id,
-      nombre,
-      imagen_url,
-      profesor_id,
-      sessions (
+  // Fetch profile (cached) and course in parallel
+  const [profile, { data: rawCourse }] = await Promise.all([
+    getCurrentProfile(),
+    supabase
+      .from('courses')
+      .select(`
         id,
         nombre,
-        tipo,
-        orden,
-        fecha_liberacion,
-        activities (
-          id
+        imagen_url,
+        profesor_id,
+        sessions (
+          id,
+          nombre,
+          tipo,
+          orden,
+          fecha_liberacion,
+          activities (
+            id
+          )
         )
-      )
-    `)
-    .eq('id', id)
-    .order('orden', { referencedTable: 'sessions', ascending: true })
-    .maybeSingle();
+      `)
+      .eq('id', id)
+      .order('orden', { referencedTable: 'sessions', ascending: true })
+      .maybeSingle(),
+  ]);
 
-  // Get professor role
-  let isProfessor = false;
-
-  if (user) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('rol')
-      .eq('id', user.id)
-      .maybeSingle();
-
-    isProfessor = profile?.rol === 'profesor';
-  }
+  const isProfessor = profile?.rol === 'profesor';
 
   if (!rawCourse) {
     return (

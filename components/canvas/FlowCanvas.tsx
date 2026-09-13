@@ -8,9 +8,12 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   addEdge,
+  updateEdge,
   useReactFlow,
   ReactFlowProvider,
-  BezierEdge,
+  BaseEdge,
+  getBezierPath,
+  EdgeLabelRenderer,
   EdgeProps,
   Connection,
   Edge,
@@ -59,9 +62,10 @@ export interface BlockConnection {
 type TerminalStatus = "idle" | "running" | "success" | "error"
 
 type EdgeData = {
-  animating: boolean
-  success: boolean
-  error: boolean
+  animating?: boolean
+  success?: boolean
+  error?: boolean
+  onDelete?: (id: string) => void
 }
 
 type AppEdge = Edge<EdgeData>
@@ -93,27 +97,77 @@ const springKeyframes = `
 `
 
 function SpringEdge(props: EdgeProps<EdgeData>) {
-  const { data, ...rest } = props
+  const {
+    id,
+    sourceX,
+    sourceY,
+    targetX,
+    targetY,
+    sourcePosition,
+    targetPosition,
+    style = {},
+    markerEnd,
+    data,
+    selected,
+  } = props
+
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  })
+
   const isAnimating: boolean = data?.animating ?? false
   const isSuccess: boolean = data?.success ?? false
   const isError: boolean = data?.error ?? false
 
-  const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : "#18181b"
+  const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : selected ? "#000000" : "#18181b"
+  const strokeWidth = selected ? 2.5 : 2
 
   return (
     <>
       {isAnimating && <style>{springKeyframes}</style>}
-      <BezierEdge
-        {...rest}
-        data={data}
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
         style={{
+          ...style,
           stroke,
-          strokeWidth: 2,
+          strokeWidth,
           animation: isAnimating
             ? "springBack 0.8s ease-in-out forwards"
             : undefined,
         }}
       />
+      {!isSuccess && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: "all",
+            }}
+            className="nodrag nopan"
+          >
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                data?.onDelete?.(id)
+              }}
+              title="Desconectar enlace"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-white border border-zinc-300 shadow-xs text-zinc-400 hover:text-white hover:bg-red-500 hover:border-red-600 transition-all cursor-pointer select-none"
+            >
+              <span className="text-xs font-bold leading-none select-none">
+                ×
+              </span>
+            </button>
+          </div>
+        </EdgeLabelRenderer>
+      )}
     </>
   )
 }
@@ -134,30 +188,33 @@ const edgeTypes = {
 // ─── Helper: initialise nodes from blocks ─────────────────────────────────────
 
 function blocksToNodes(blocks: Block[]): Node[] {
-  // Estimate number of lines from distinct Y positions
-  const distinctY = new Set(blocks.map((b) => b.posicion_y))
-  const estimatedLines = Math.max(3, distinctY.size)
-
+  // Line rail starts with only 1 line per user requirement
   const lineRailNode: Node = {
     id: "line-rail",
     type: "lineRail",
-    position: { x: 30, y: 100 },
-    data: { lines: estimatedLines, readOnly: false },
+    position: { x: 30, y: 80 },
+    data: { lines: 1, readOnly: false },
     deletable: false,
   }
 
-  const blockNodes: Node[] = blocks.map((block, index) => {
-    // Default staggered layout if positions are 0 or unset
-    const defaultX = 220 + (index % 2) * 320
-    const defaultY = 100 + Math.floor(index / 2) * 160
-    const posX =
-      block.posicion_x !== undefined && block.posicion_x !== 0
-        ? block.posicion_x
-        : defaultX
-    const posY =
-      block.posicion_y !== undefined && block.posicion_y !== 0
-        ? block.posicion_y
-        : defaultY
+  // Shuffle blocks so they do NOT appear in the answer order
+  const shuffledBlocks = [...blocks].sort(() => Math.random() - 0.5)
+
+  // Layout grid parameters for scattering blocks across the canvas
+  const cols = Math.min(5, Math.max(3, Math.ceil(Math.sqrt(shuffledBlocks.length * 1.5))))
+  const START_X = 240
+  const START_Y = 80
+  const COL_WIDTH = 130
+  const ROW_HEIGHT = 100
+
+  const blockNodes: Node[] = shuffledBlocks.map((block, index) => {
+    const col = index % cols
+    const row = Math.floor(index / cols)
+    const jitterX = Math.floor(Math.random() * 40) - 20
+    const jitterY = Math.floor(Math.random() * 30) - 15
+
+    const posX = START_X + col * COL_WIDTH + jitterX
+    const posY = START_Y + row * ROW_HEIGHT + jitterY
 
     const base = {
       id: block.id,
@@ -282,14 +339,138 @@ function FlowCanvasInner({
   ).length
   const canExecute = edges.length >= Math.max(1, codeNodesCount - 1)
 
+  // ── removeEdge ──────────────────────────────────────────────────────────────
+  const removeEdge = useCallback(
+    (edgeId: string) => {
+      setEdges((eds) => {
+        const targetEdge = eds.find((e) => e.id === edgeId)
+        const remaining = eds.filter((e) => e.id !== edgeId)
+
+        if (targetEdge) {
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (n.type === "lineRail" || n.type === "sticker") return n
+              if (n.id === targetEdge.source || n.id === targetEdge.target) {
+                const stillConnected = remaining.some(
+                  (e) => e.source === n.id || e.target === n.id
+                )
+                if (!stillConnected) {
+                  return { ...n, data: { ...n.data, state: "idle" } }
+                }
+              }
+              return n
+            })
+          )
+        }
+
+        return remaining
+      })
+    },
+    [setEdges, setNodes]
+  )
+
+  // ── edgeUpdate handlers (drag edge endpoint to reconnect or disconnect) ──
+  const edgeUpdateSuccessful = useRef(true)
+
+  const onEdgeUpdateStart = useCallback(() => {
+    edgeUpdateSuccessful.current = false
+  }, [])
+
+  const onEdgeUpdate = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      edgeUpdateSuccessful.current = true
+      setEdges((els) => {
+        const nextEdges = updateEdge(oldEdge, newConnection, els)
+        return nextEdges.map((e) =>
+          e.id === oldEdge.id
+            ? { ...e, data: { ...e.data, onDelete: removeEdge } }
+            : e
+        )
+      })
+
+      // Update node states for affected nodes
+      setTimeout(() => {
+        setEdges((currentEdges) => {
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (n.type === "lineRail" || n.type === "sticker") return n
+              const isConnected = currentEdges.some(
+                (e) => e.source === n.id || e.target === n.id
+              )
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  state: isConnected ? "connected" : "idle",
+                },
+              }
+            })
+          )
+          return currentEdges
+        })
+      }, 0)
+    },
+    [setEdges, setNodes, removeEdge]
+  )
+
+  const onEdgeUpdateEnd = useCallback(
+    (_: MouseEvent | TouchEvent, edge: Edge) => {
+      if (!edgeUpdateSuccessful.current) {
+        removeEdge(edge.id)
+      }
+      edgeUpdateSuccessful.current = true
+    },
+    [removeEdge]
+  )
+
+  const onEdgeDoubleClick = useCallback(
+    (_: React.MouseEvent, edge: Edge) => {
+      removeEdge(edge.id)
+    },
+    [removeEdge]
+  )
+
+  const handleEdgesChange: typeof onEdgesChange = useCallback(
+    (changes) => {
+      onEdgesChange(changes)
+      const hasRemovals = changes.some((c) => c.type === "remove")
+      if (hasRemovals) {
+        setTimeout(() => {
+          setEdges((currentEdges) => {
+            setNodes((nds) =>
+              nds.map((n) => {
+                if (n.type === "lineRail" || n.type === "sticker") return n
+                const isStillConnected = currentEdges.some(
+                  (e) => e.source === n.id || e.target === n.id
+                )
+                if (!isStillConnected && n.data?.state === "connected") {
+                  return { ...n, data: { ...n.data, state: "idle" } }
+                }
+                return n
+              })
+            )
+            return currentEdges
+          })
+        }, 0)
+      }
+    },
+    [onEdgesChange, setEdges, setNodes]
+  )
+
   // ── onConnect ───────────────────────────────────────────────────────────────
   const onConnect = useCallback(
     (connection: Connection) => {
       const newEdge: Edge = {
         ...connection,
-        id: `e-${connection.source}-${connection.target}-${Date.now()}`,
+        id: `e-${connection.source}-${connection.sourceHandle || ""}-${connection.target}-${Date.now()}`,
         type: "spring",
-        data: { animating: false, success: false, error: false },
+        updatable: !isReadOnly,
+        data: {
+          animating: false,
+          success: false,
+          error: false,
+          onDelete: removeEdge,
+        },
         style: { stroke: "#18181b", strokeWidth: 2 },
       } as Edge
 
@@ -298,6 +479,7 @@ function FlowCanvasInner({
       // Mark source and target nodes as connected
       setNodes((nds) =>
         nds.map((n) => {
+          if (n.type === "lineRail" || n.type === "sticker") return n
           if (n.id === connection.source || n.id === connection.target) {
             return { ...n, data: { ...n.data, state: "connected" } }
           }
@@ -305,7 +487,7 @@ function FlowCanvasInner({
         })
       )
     },
-    [setEdges, setNodes]
+    [setEdges, setNodes, removeEdge, isReadOnly]
   )
 
   // ── onExecute ───────────────────────────────────────────────────────────────
@@ -347,7 +529,7 @@ function FlowCanvasInner({
         setTerminalStatus("success")
         const outputLines = json.stdout
           ? json.stdout.split("\n")
-          : resultadoEsperado.split("\n")
+          : ["Código ejecutado exitosamente sin errores."]
         setTerminalLines(outputLines)
 
         // Turn all edges green
@@ -458,13 +640,19 @@ function FlowCanvasInner({
         nodes={nodes}
         edges={edges}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={handleEdgesChange}
         onConnect={onConnect}
+        onEdgeUpdate={onEdgeUpdate}
+        onEdgeUpdateStart={onEdgeUpdateStart}
+        onEdgeUpdateEnd={onEdgeUpdateEnd}
+        onEdgeDoubleClick={onEdgeDoubleClick}
+        edgesUpdatable={!isReadOnly}
+        edgesFocusable={true}
         nodeTypes={nodeTypes}
         edgeTypes={edgeTypes}
         fitView
         proOptions={{ hideAttribution: true }}
-        deleteKeyCode="Backspace"
+        deleteKeyCode={["Backspace", "Delete"]}
         className="bg-gray-50"
       >
         <Background

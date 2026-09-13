@@ -12,56 +12,48 @@ export default async function ActividadPage({
   const supabase = await createClient()
 
   // Parallel fetch: activity data + current user
-  const [
-    { data: activity, error: activityError },
-    {
-      data: { user },
-    },
-  ] = await Promise.all([
-    supabase
-      .from("activities")
-      .select(
-        `
-        id,
-        titulo,
-        enunciado,
-        resultado_esperado,
-        orden,
-        session_id,
-        sessions (
-          id,
-          nombre,
-          curso_id,
-          courses (
-            id,
-            nombre
-          )
-        ),
-        blocks (
-          id,
-          activity_id,
-          tipo,
-          contenido,
-          posicion_x,
-          posicion_y,
-          indent_level,
-          orden_correcto
-        ),
-        connections (
-          id,
-          activity_id,
-          source_block_id,
-          target_block_id,
-          source_handle,
-          target_handle,
-          orden
-        )
+  const { data: activity, error: activityError } = await supabase
+    .from("activities")
+    .select(
       `
+      id,
+      titulo,
+      enunciado,
+      resultado_esperado,
+      orden,
+      session_id,
+      sessions (
+        id,
+        nombre,
+        curso_id,
+        courses (
+          id,
+          nombre
+        )
+      ),
+      blocks (
+        id,
+        activity_id,
+        tipo,
+        contenido,
+        posicion_x,
+        posicion_y,
+        indent_level,
+        orden_correcto
+      ),
+      connections (
+        id,
+        activity_id,
+        source_block_id,
+        target_block_id,
+        source_handle,
+        target_handle,
+        orden
       )
-      .eq("id", id)
-      .single(),
-    supabase.auth.getUser(),
-  ])
+    `
+    )
+    .eq("id", id)
+    .single()
 
   if (activityError || !activity) {
     notFound()

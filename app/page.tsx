@@ -16,6 +16,8 @@ interface Course {
   profiles: Professor | null;
 }
 
+export const revalidate = 30;
+
 export default async function HomePage() {
   const supabase = await createClient();
 

@@ -72,7 +72,11 @@ export function reconstructCodeFromCanvas(
 
   if (lineRail && railLineToTarget.size > 0) {
     // ── Mode 1: Reconstruct using Line Rail in descending order (1, 2, 3...) ───
-    const numLines = lineRail.data?.lines ?? Math.max(railLineToTarget.size, 3)
+    const handleMaxLine = Array.from(railLineToTarget.keys()).reduce((max, k) => {
+      const m = k.match(/^line-(\d+)$/)
+      return m ? Math.max(max, parseInt(m[1], 10)) : max
+    }, 1)
+    const numLines = Math.max(lineRail.data?.lines ?? 1, handleMaxLine)
 
     for (let i = 1; i <= numLines; i++) {
       const handleId = `line-${i}`
@@ -150,3 +154,53 @@ function traverseLineChain(
 
   return { lineCode, visited }
 }
+
+export type BlockForReconstruction = {
+  tipo: string
+  contenido: string | null
+  orden_correcto: number
+  indent_level?: number | null
+  posicion_y?: number | null
+}
+
+/**
+ * Reconstructs the reference Python code from database blocks sorted by orden_correcto.
+ */
+export function reconstructCodeFromBlocks(blocks: BlockForReconstruction[]): string {
+  if (!blocks || blocks.length === 0) return ''
+  const sorted = [...blocks].sort((a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0))
+  const codeBlocks = sorted.filter(
+    (b) => b.tipo === 'codigo' && b.contenido !== null && b.contenido !== undefined
+  )
+  if (codeBlocks.length === 0) return ''
+
+  const lines: { indent: number; tokens: string[] }[] = []
+  let currentTokens: string[] = []
+  let currentIndent = codeBlocks[0].indent_level ?? 0
+  let currentY = codeBlocks[0].posicion_y ?? 0
+
+  for (const b of codeBlocks) {
+    const isNewLine =
+      b.posicion_y !== undefined &&
+      b.posicion_y !== null &&
+      Math.abs((b.posicion_y ?? 0) - currentY) > 25
+
+    if (isNewLine && currentTokens.length > 0) {
+      lines.push({ indent: currentIndent, tokens: currentTokens })
+      currentTokens = []
+      currentIndent = b.indent_level ?? 0
+      currentY = b.posicion_y ?? 0
+    }
+
+    currentTokens.push(b.contenido ?? '')
+  }
+
+  if (currentTokens.length > 0) {
+    lines.push({ indent: currentIndent, tokens: currentTokens })
+  }
+
+  return lines
+    .map((l) => ' '.repeat(Math.max(0, l.indent) * 4) + joinTokens(l.tokens))
+    .join('\n')
+}
+

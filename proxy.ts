@@ -2,6 +2,32 @@ import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl
+
+  // Fast-path: Check if there are any Supabase auth cookies in the incoming request
+  const allCookies = request.cookies.getAll()
+  const hasAuthCookie = allCookies.some(
+    (c) => c.name.includes('-auth-token') || c.name.startsWith('sb-')
+  )
+
+  // If there is no auth cookie at all:
+  if (!hasAuthCookie) {
+    // Protected routes: redirect immediately without hitting Supabase network
+    if (pathname.startsWith('/profesor')) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/'
+      return NextResponse.redirect(redirectUrl)
+    }
+    if (pathname.startsWith('/actividad')) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/login'
+      return NextResponse.redirect(redirectUrl)
+    }
+    // Public routes: pass through immediately in 0ms
+    return NextResponse.next({ request })
+  }
+
+  // Session exists: Initialize SSR client to refresh session cookies
   let supabaseResponse = NextResponse.next({
     request,
   })
@@ -27,36 +53,19 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Refresh session — do NOT remove this call.
+  // Refresh session
   const {
     data: { user },
   } = await supabase.auth.getUser()
 
-  const { pathname } = request.nextUrl
-
-  // ── Protected: /profesor/* requires auth + profesor role ──────────────────
-  if (pathname.startsWith('/profesor')) {
-    if (!user) {
-      const redirectUrl = request.nextUrl.clone()
-      redirectUrl.pathname = '/'
-      return NextResponse.redirect(redirectUrl)
-    }
-
-    // Fetch the user profile to check role
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('rol')
-      .eq('id', user.id)
-      .single()
-
-    if (!profile || profile.rol !== 'profesor') {
-      const redirectUrl = request.nextUrl.clone()
-      redirectUrl.pathname = '/'
-      return NextResponse.redirect(redirectUrl)
-    }
+  // Protected: /profesor/*
+  if (pathname.startsWith('/profesor') && !user) {
+    const redirectUrl = request.nextUrl.clone()
+    redirectUrl.pathname = '/'
+    return NextResponse.redirect(redirectUrl)
   }
 
-  // ── Protected: /actividad/* requires auth ─────────────────────────────────
+  // Protected: /actividad/*
   if (pathname.startsWith('/actividad') && !user) {
     const redirectUrl = request.nextUrl.clone()
     redirectUrl.pathname = '/login'

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import Image from 'next/image'
 import { BookOpen } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCurrentProfile } from '@/lib/supabase/server'
 import CreateCourseModalTrigger from '@/components/professor/CreateCourseModalTrigger'
 import EditCourseModalTrigger from '@/components/professor/EditCourseModalTrigger'
 
@@ -19,29 +19,14 @@ type Course = {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default async function ProfesorDashboardPage() {
-  const supabase = await createClient()
-
-  // Auth guard (belt-and-suspenders; middleware already enforces this)
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) redirect('/')
-
-  // Fetch professor profile
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, nombre, apellido_paterno, rol')
-    .eq('id', user.id)
-    .single()
-
+  const profile = await getCurrentProfile()
   if (!profile || profile.rol !== 'profesor') redirect('/')
 
-  // Fetch courses belonging to this professor
+  const supabase = await createClient()
   const { data: courses } = await supabase
     .from('courses')
     .select('id, nombre, imagen_url, profesor_id, created_at')
-    .eq('profesor_id', user.id)
+    .eq('profesor_id', profile.id)
     .order('created_at', { ascending: false })
 
   const courseList: Course[] = courses ?? []

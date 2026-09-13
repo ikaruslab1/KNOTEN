@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { ChevronRight, BookOpen, Clock, Pencil, Plus } from 'lucide-react'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, getCurrentUser } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import SessionCreateTrigger from '@/components/professor/SessionCreateTrigger'
 
@@ -39,31 +39,27 @@ export default async function ProfesorCursoPage({
   const { id } = await params
   const supabase = await createClient()
 
-  // Auth guard
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Run auth check, course fetch, and sessions fetch concurrently
+  const [user, { data: course }, { data: rawSessions }] = await Promise.all([
+    getCurrentUser(),
+    supabase
+      .from('courses')
+      .select('id, nombre, imagen_url, profesor_id')
+      .eq('id', id)
+      .single(),
+    supabase
+      .from('sessions')
+      .select(
+        `id, nombre, tipo, fecha_liberacion, orden,
+         activities ( id, titulo, orden )`
+      )
+      .eq('curso_id', id)
+      .order('orden', { ascending: true }),
+  ])
+
   if (!user) redirect('/')
-
-  // Fetch course + verify ownership
-  const { data: course } = await supabase
-    .from('courses')
-    .select('id, nombre, imagen_url, profesor_id')
-    .eq('id', id)
-    .single()
-
   if (!course) notFound()
   if (course.profesor_id !== user.id) redirect('/profesor')
-
-  // Fetch sessions with activities (count via nested select)
-  const { data: rawSessions } = await supabase
-    .from('sessions')
-    .select(
-      `id, nombre, tipo, fecha_liberacion, orden,
-       activities ( id, titulo, orden )`
-    )
-    .eq('curso_id', id)
-    .order('orden', { ascending: true })
 
   const sessions: Session[] = (rawSessions ?? []).map((s) => ({
     ...s,

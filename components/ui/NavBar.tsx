@@ -1,22 +1,12 @@
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/server'
+import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/server'
 import { LogIn, Code2, User } from 'lucide-react'
 
 export async function NavBar() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  let profile: { nombre: string; apellido_paterno: string; rol: string } | null = null
-  if (user) {
-    const { data } = await supabase
-      .from('profiles')
-      .select('nombre, apellido_paterno, rol')
-      .eq('id', user.id)
-      .maybeSingle()
-    profile = data
-  }
+  const [user, profile] = await Promise.all([
+    getCurrentUser(),
+    getCurrentProfile(),
+  ])
 
   return (
     <header className="sticky top-0 inset-x-0 z-40 bg-white/90 backdrop-blur-md border-b border-zinc-200">

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { executePythonCode } from '@/lib/python-executor'
+import { executePythonCode, compareExecutionResults } from '@/lib/python-executor'
+import { reconstructCodeFromBlocks } from '@/lib/code-reconstructor'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -137,20 +138,27 @@ export async function POST(request: NextRequest) {
 
   const adminClient = getAdminClient()
 
-  // ── 3. Fetch activity details & correct blocks ─────────────────────────
-  const { data: activityData } = await adminClient
-    .from('activities')
-    .select('id, resultado_esperado')
-    .eq('id', activityId)
-    .maybeSingle()
-
-  const expectedOutput = (activityData?.resultado_esperado ?? '').trim()
-
-  const { data: correctBlocks, error: blocksError } = await adminClient
-    .from('blocks')
-    .select('id, orden_correcto')
-    .eq('activity_id', activityId)
-    .order('orden_correcto', { ascending: true })
+  // ── 3. Fetch activity details, correct blocks & connections in parallel ──
+  const [
+    { data: activityData },
+    { data: correctBlocks, error: blocksError },
+    { data: correctConnections, error: connError },
+  ] = await Promise.all([
+    adminClient
+      .from('activities')
+      .select('id, resultado_esperado')
+      .eq('id', activityId)
+      .maybeSingle(),
+    adminClient
+      .from('blocks')
+      .select('id, tipo, contenido, orden_correcto, indent_level, posicion_y')
+      .eq('activity_id', activityId)
+      .order('orden_correcto', { ascending: true }),
+    adminClient
+      .from('connections')
+      .select('source_block_id, target_block_id, source_handle, target_handle')
+      .eq('activity_id', activityId),
+  ])
 
   if (blocksError || !correctBlocks) {
     console.error('[validate] Error fetching blocks:', blocksError)
@@ -160,12 +168,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 4. Fetch correct connections ───────────────────────────────────────
-  const { data: correctConnections, error: connError } = await adminClient
-    .from('connections')
-    .select('source_block_id, target_block_id, source_handle, target_handle')
-    .eq('activity_id', activityId)
-
   if (connError) {
     console.error('[validate] Error fetching connections:', connError)
     return NextResponse.json(
@@ -174,7 +176,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // ── 5. Compare block order ─────────────────────────────────────────────
+  // ── 5. Compare block order (structural fallback) ───────────────────────
   const correctOrder = correctBlocks.map((b) => b.id as string)
 
   const effectiveBlockOrder =
@@ -190,27 +192,24 @@ export async function POST(request: NextRequest) {
   let responseMessage = ''
   let executionStdout = ''
 
-  // ── 6. Dynamic execution validation if reconstructedCode is present ──
+  // ── 6. Dynamic execution validation by comparing against original code ─
   if (typeof reconstructedCode === 'string' && reconstructedCode.trim().length > 0) {
-    const execResult = await executePythonCode(reconstructedCode)
+    const referenceCode = reconstructCodeFromBlocks(correctBlocks as any[])
 
-    if (!execResult.success) {
-      // Syntax or runtime error in Python
-      isSuccess = false
-      responseMessage = execResult.stderr || 'Error de sintaxis o ejecución en Python.'
-    } else {
-      executionStdout = execResult.stdout
-      const outputMatches =
-        execResult.stdout.trim() === expectedOutput ||
-        (expectedOutput === '' && execResult.stdout !== undefined)
+    // Execute both reference code and student code concurrently
+    const [refResult, studentResult] = await Promise.all([
+      executePythonCode(referenceCode),
+      executePythonCode(reconstructedCode),
+    ])
 
-      if (outputMatches) {
-        isSuccess = true
-        responseMessage = '¡Correcto! El código se ejecutó y produjo el resultado esperado.'
-      } else {
-        isSuccess = false
-        responseMessage = `El código se ejecutó, pero la salida no es la esperada.\nSalida obtenida:\n${execResult.stdout}\n\nSalida esperada:\n${expectedOutput}`
-      }
+    const comparison = compareExecutionResults(refResult, studentResult)
+
+    isSuccess = comparison.isSuccess || orderCorrect
+    responseMessage = comparison.responseMessage
+    executionStdout = comparison.displayOutput
+
+    if (!isSuccess && !studentResult.success) {
+      responseMessage = studentResult.stderr || 'Error de sintaxis o ejecución en Python.'
     }
   } else {
     // Legacy / fallback: compare block order & connections

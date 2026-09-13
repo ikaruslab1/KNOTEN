@@ -1,6 +1,11 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  compress: true,
+  poweredByHeader: false,
+  experimental: {
+    optimizePackageImports: ['lucide-react', 'reactflow', 'canvas-confetti'],
+  },
   allowedDevOrigins: [
     '192.168.0.134',
     'localhost',

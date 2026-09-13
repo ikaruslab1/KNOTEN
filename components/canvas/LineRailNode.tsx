@@ -14,7 +14,7 @@ export type LineRailData = {
 const ROW_HEIGHT = 90
 
 const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
-  const [lines, setLines] = useState<number>(data?.lines ?? 3)
+  const [lines, setLines] = useState<number>(data?.lines ?? 1)
   const updateNodeInternals = useUpdateNodeInternals()
 
   useEffect(() => {
