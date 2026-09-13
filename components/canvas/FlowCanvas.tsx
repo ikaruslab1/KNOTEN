@@ -560,9 +560,12 @@ function FlowCanvasInner({
         draggedNode.position.y = matchedSnapY
       }
 
-      setGuideLines({ x: matchedGuideX, y: matchedGuideY })
+      setGuideLines((prev) => {
+        if (prev.x === matchedGuideX && prev.y === matchedGuideY) return prev
+        return { x: matchedGuideX, y: matchedGuideY }
+      })
     },
-    [smartGuidesEnabled, nodes, guideLines.x, guideLines.y]
+    [smartGuidesEnabled, nodes]
   )
 
   const onNodeDragStop = useCallback(() => {
@@ -669,25 +672,35 @@ function FlowCanvasInner({
     }
   }, [nodes, alignLine])
 
-  // Keep onAlignLine wired to lineRailNode
+  // Ref to always access the latest alignLine function without triggering re-render loops
+  const alignLineRef = useRef<(lineNumber?: number) => void>(() => {})
+  alignLineRef.current = alignLine
+
+  const stableAlignLine = useCallback((lineNumber?: number) => {
+    alignLineRef.current(lineNumber)
+  }, [])
+
+  // Keep onAlignLine wired to lineRailNode safely without causing an infinite re-render loop
   useEffect(() => {
-    setNodes((nds) =>
-      nds.map((n) => {
+    setNodes((nds) => {
+      const lineRail = nds.find((n) => n.type === "lineRail" || n.id === "line-rail")
+      if (lineRail && lineRail.data?.onAlignLine === stableAlignLine) {
+        return nds
+      }
+      return nds.map((n) => {
         if (n.type === "lineRail" || n.id === "line-rail") {
-          if (n.data?.onAlignLine !== alignLine) {
-            return {
-              ...n,
-              data: {
-                ...n.data,
-                onAlignLine: alignLine,
-              },
-            }
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              onAlignLine: stableAlignLine,
+            },
           }
         }
         return n
       })
-    )
-  }, [alignLine, setNodes])
+    })
+  }, [stableAlignLine, setNodes])
 
   // ── Activity switch with cartoon bounce zoom-out exit ──────────────────────
   const handleSwitchActivity = useCallback(
