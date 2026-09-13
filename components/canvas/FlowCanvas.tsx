@@ -194,17 +194,6 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
     <>
       {isAnimating && <style>{springKeyframes}</style>}
 
-      {/* Subtle rubber shadow/glow */}
-      <path
-        d={edgePath}
-        fill="none"
-        stroke={isSuccess ? "#86efac" : isError ? "#fca5a5" : "#71717a"}
-        strokeWidth={strokeWidth + 2.5}
-        strokeOpacity={selected ? 0.35 : 0.18}
-        strokeLinecap="round"
-        className="pointer-events-none transition-all duration-150"
-      />
-
       <BaseEdge
         path={edgePath}
         markerEnd={markerEnd}
@@ -624,8 +613,25 @@ function FlowCanvasInner({
   const onEdgeUpdate = useCallback(
     (oldEdge: Edge, newConnection: Connection) => {
       edgeUpdateSuccessful.current = true
+
+      const isConflicting = (e: Edge) => {
+        if (e.id === oldEdge.id) return false
+        const sameSource =
+          e.source === newConnection.source &&
+          (newConnection.sourceHandle
+            ? e.sourceHandle === newConnection.sourceHandle
+            : !e.sourceHandle)
+        const sameTarget =
+          e.target === newConnection.target &&
+          (newConnection.targetHandle
+            ? e.targetHandle === newConnection.targetHandle
+            : !e.targetHandle)
+        return sameSource || sameTarget
+      }
+
       setEdges((els) => {
-        const nextEdges = updateEdge(oldEdge, newConnection, els)
+        const nonConflicting = els.filter((e) => !isConflicting(e))
+        const nextEdges = updateEdge(oldEdge, newConnection, nonConflicting)
         return nextEdges.map((e) =>
           e.id === oldEdge.id
             ? { ...e, data: { ...e.data, onDelete: removeEdge } }
@@ -754,25 +760,62 @@ function FlowCanvasInner({
         style: { stroke: "#18181b", strokeWidth: 2 },
       } as Edge
 
-      setEdges((eds) => addEdge(newEdge, eds))
+      // A handle or node can only have 1 connection at a time.
+      // If a node/handle is already occupied, remove the previous connection.
+      const isConflicting = (e: Edge) => {
+        const sameSource =
+          e.source === connection.source &&
+          (connection.sourceHandle
+            ? e.sourceHandle === connection.sourceHandle
+            : !e.sourceHandle)
 
-      // Mark source and target nodes as connected, AND trigger immediate block bump reaction!
-      setNodes((nds) =>
-        nds.map((n) => {
-          if (n.type === "lineRail" || n.type === "sticker") return n
-          if (n.id === connection.target || n.id === connection.source) {
+        const sameTarget =
+          e.target === connection.target &&
+          (connection.targetHandle
+            ? e.targetHandle === connection.targetHandle
+            : !e.targetHandle)
+
+        return sameSource || sameTarget
+      }
+
+      setEdges((eds) => {
+        const remaining = eds.filter((e) => !isConflicting(e))
+        const finalEdges = [...remaining, newEdge]
+
+        // Update node states for all nodes in the canvas
+        setNodes((nds) =>
+          nds.map((n) => {
+            if (n.type === "lineRail" || n.type === "sticker") return n
+
+            // Source and target of the new connection are connected and bump immediately
+            if (n.id === connection.target || n.id === connection.source) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  state: "connected",
+                  bump: Date.now(),
+                },
+              }
+            }
+
+            // For all other nodes, check if they are still connected in finalEdges
+            const isStillConnected = finalEdges.some(
+              (e) => e.source === n.id || e.target === n.id
+            )
+
             return {
               ...n,
               data: {
                 ...n.data,
-                state: "connected",
-                bump: Date.now(),
+                state: isStillConnected ? "connected" : "idle",
               },
             }
-          }
-          return n
-        })
-      )
+          })
+        )
+
+        return finalEdges
+      })
     },
     [setEdges, setNodes, removeEdge, isReadOnly]
   )

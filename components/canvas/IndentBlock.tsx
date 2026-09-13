@@ -24,6 +24,15 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
   const { bump, isExiting, entranceDelay = 0 } = data || {}
   const [isBumping, setIsBumping] = useState(false)
   const prevBumpRef = useRef(bump)
+  const [hasEntered, setHasEntered] = useState(false)
+
+  // Mark entrance as finished so animate-cartoon-in is never re-triggered
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setHasEntered(true)
+    }, (entranceDelay + 0.6) * 1000)
+    return () => clearTimeout(timer)
+  }, [entranceDelay])
 
   const totalHeight = rows * ROW_HEIGHT
 
@@ -70,16 +79,27 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
     setTimeout(() => updateNodeInternals(id), 10)
   }
 
+  const handleAnimationEnd = (e: React.AnimationEvent) => {
+    if (e.animationName.includes('cartoonBounceIn')) {
+      setHasEntered(true)
+    }
+    updateNodeInternals(id)
+  }
+
   return (
     <div
-      onAnimationEnd={() => updateNodeInternals(id)}
+      onAnimationEnd={handleAnimationEnd}
       style={{
         height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT,
         animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}
       className={cn(
         'relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all cursor-grab active:cursor-grabbing',
-        isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
+        isExiting
+          ? 'animate-cartoon-out'
+          : !hasEntered
+          ? 'animate-cartoon-in'
+          : '',
         isBumping && 'animate-block-bump',
         selected
           ? 'scale-106 shadow-2xl ring-2 ring-zinc-900 ring-offset-2 z-30'

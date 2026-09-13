@@ -1,11 +1,28 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowUp, ArrowDown, ChevronRight, ChevronLeft, Loader2, CheckCircle2, ExternalLink } from 'lucide-react'
+import {
+  ArrowUp,
+  ArrowDown,
+  ChevronRight,
+  ChevronLeft,
+  Loader2,
+  CheckCircle2,
+  ExternalLink,
+  Edit2,
+  Trash2,
+  Plus,
+  AlertTriangle,
+  RotateCcw,
+  Check,
+  X,
+  Code2,
+  LayoutTemplate,
+} from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
-import { splitPythonCode, getDefaultPositions, type SplitBlock } from '@/lib/code-splitter'
+import { splitPythonCode, getDefaultPositions, tokenizeLine, type SplitBlock } from '@/lib/code-splitter'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -181,6 +198,117 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
     })
   }, [])
 
+  // ── Step 2: edit, delete, add, reset blocks ───────────────────────────────
+  const handleEditBlock = useCallback(
+    (
+      index: number,
+      newContent: string,
+      newType: SplitBlock['tipo'],
+      newIndentLevel?: number
+    ) => {
+      setBlocks((prev) => {
+        const next = [...prev]
+        if (!next[index]) return prev
+        next[index] = {
+          ...next[index],
+          contenido: newContent,
+          tipo: newType,
+          indent_level:
+            newIndentLevel !== undefined
+              ? newIndentLevel
+              : next[index].indent_level,
+        }
+        return next
+      })
+    },
+    []
+  )
+
+  const handleDeleteBlock = useCallback((index: number) => {
+    setBlocks((prev) => {
+      const next = prev.filter((_, i) => i !== index)
+      return next.map((b, i) => ({ ...b, orden_correcto: i }))
+    })
+  }, [])
+
+  const handleAddBlock = useCallback(
+    (tipo: 'codigo' | 'indentacion', initialContent: string = '') => {
+      setBlocks((prev) => {
+        const lastBlock = prev[prev.length - 1]
+        const nextOrder = prev.length
+        const nextLine = lastBlock ? (lastBlock.line_index ?? 0) : 0
+        const nextIndent = lastBlock ? (lastBlock.indent_level ?? 0) : 0
+        const newBlock: SplitBlock = {
+          tipo,
+          contenido: initialContent,
+          orden_correcto: nextOrder,
+          indent_level: nextIndent,
+          line_index: nextLine,
+        }
+        return [...prev, newBlock]
+      })
+    },
+    []
+  )
+
+  const handleResetBlocks = useCallback(() => {
+    if (!code.trim()) return
+    const split = splitPythonCode(code)
+    setBlocks(split)
+  }, [code])
+
+  // ── Step 2: Missing Elements Analysis (Original Step 1 Code vs Current Blocks) ─
+  const originalTokens = useMemo(() => {
+    if (!code.trim()) return []
+    const lines = code.split('\n')
+    const tokens: string[] = []
+    for (const line of lines) {
+      if (line.trim() === '') continue
+      const lineTokens = tokenizeLine(line)
+      tokens.push(...lineTokens)
+    }
+    return tokens
+  }, [code])
+
+  const currentTokens = useMemo(() => {
+    const tokens: string[] = []
+    for (const block of blocks) {
+      if (block.tipo === 'codigo' && block.contenido) {
+        const bTokens = tokenizeLine(block.contenido)
+        tokens.push(...bTokens)
+      }
+    }
+    return tokens
+  }, [blocks])
+
+  const missingTokens = useMemo(() => {
+    const currentCounts = new Map<string, number>()
+    for (const t of currentTokens) {
+      currentCounts.set(t, (currentCounts.get(t) || 0) + 1)
+    }
+
+    const missing: string[] = []
+    for (const t of originalTokens) {
+      const count = currentCounts.get(t) || 0
+      if (count > 0) {
+        currentCounts.set(t, count - 1)
+      } else {
+        missing.push(t)
+      }
+    }
+    return missing
+  }, [originalTokens, currentTokens])
+
+  const originalIndentCount = useMemo(() => {
+    return splitPythonCode(code).filter((b) => b.tipo === 'indentacion').length
+  }, [code])
+
+  const currentIndentCount = useMemo(() => {
+    return blocks.filter((b) => b.tipo === 'indentacion').length
+  }, [blocks])
+
+  const missingIndentCount = Math.max(0, originalIndentCount - currentIndentCount)
+
   // ── Step 4: save ──────────────────────────────────────────────────────────
   async function handleSave() {
     setToast('saving')
@@ -327,57 +455,155 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
         </section>
       )}
 
-      {/* ── Step 2/3: Block preview + reorder ───────────────────────────────── */}
+      {/* ── Step 2/3: Block preview + manual editing + reorder ───────────────── */}
       {step === 2 && (
         <section className="flex flex-col gap-4">
           <div>
-            <h2 className="text-base font-semibold text-gray-900">
-              Vista previa de bloques
+            <h2 className="text-base font-semibold text-zinc-900">
+              Vista previa y edición manual de bloques
             </h2>
-            <p className="text-sm text-gray-500">
-              Usa las flechas para ajustar el orden si es necesario.
+            <p className="text-sm text-zinc-500">
+              Puedes editar el texto de cada bloque, eliminar los que quieras agrupar o añadir nuevos. El sistema verificará automáticamente que no olvides ningún elemento del código original.
             </p>
           </div>
 
+          {/* Real-time missing elements banner */}
+          {missingTokens.length > 0 || missingIndentCount > 0 ? (
+            <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs animate-in fade-in duration-150">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold text-amber-900">
+                    Elementos del código original que eliminaste y faltan por reescribir
+                  </h3>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Eliminaste bloques del código y los siguientes elementos aún no aparecen en ningún bloque. Puedes escribirlos dentro de otro bloque o hacer clic para agregarlos:
+                  </p>
+
+                  {missingTokens.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5 items-center">
+                      {missingTokens.map((token, idx) => (
+                        <button
+                          key={`${token}-${idx}`}
+                          type="button"
+                          onClick={() => handleAddBlock('codigo', token)}
+                          title="Haz clic para agregar este elemento como nuevo bloque"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-950 font-mono text-xs font-semibold hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer shadow-xs group"
+                        >
+                          <span>{token}</span>
+                          <Plus className="w-3 h-3 text-amber-500 group-hover:text-amber-800" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {missingIndentCount > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs font-medium text-amber-800">
+                        Faltan {missingIndentCount} bloque(s) de indentación:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleAddBlock('indentacion', '')}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 transition shadow-xs"
+                      >
+                        <Plus className="w-3 h-3" /> Agregar indentación
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-4 py-2.5 text-emerald-800 text-xs font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <span>Todos los elementos del código original están presentes en los bloques.</span>
+            </div>
+          )}
+
+          {/* List of blocks */}
           <div className="flex flex-col gap-2">
             {blocks.map((block, index) => (
               <BlockCard
-                key={index}
+                key={`${index}-${block.orden_correcto}`}
                 block={block}
                 index={index}
                 total={blocks.length}
                 onMove={moveBlock}
+                onEdit={handleEditBlock}
+                onDelete={handleDeleteBlock}
               />
             ))}
           </div>
 
           {blocks.length === 0 && (
-            <p className="text-center text-sm text-gray-400 py-8">
-              No se encontraron bloques. Vuelve y verifica el código.
+            <p className="text-center text-sm text-zinc-400 py-8">
+              No hay bloques. Puedes agregar uno nuevo o restablecer la división automática.
             </p>
           )}
 
-          <div className="flex justify-between">
+          {/* Add block & Reset toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1 border-t border-zinc-100">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleAddBlock('codigo', '')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-zinc-500" />
+                Agregar bloque de código
+              </button>
+              <button
+                type="button"
+                onClick={() => handleAddBlock('indentacion', '')}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 bg-white hover:bg-zinc-50 text-zinc-700 text-xs font-semibold shadow-xs transition cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-zinc-500" />
+                Agregar indentación
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleResetBlocks}
+              title="Volver a generar los bloques automáticamente según el código del Paso 1"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 text-xs font-medium transition cursor-pointer"
+            >
+              <RotateCcw className="w-3.5 h-3.5" />
+              Restablecer división automática
+            </button>
+          </div>
+
+          {/* Step navigation */}
+          <div className="flex justify-between items-center pt-2">
             <button
               type="button"
               onClick={() => setStep(1)}
-              className="flex items-center gap-1.5 rounded-lg border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+              className="flex items-center gap-1.5 rounded-lg border border-zinc-200 px-4 py-2.5 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50"
             >
               <ChevronLeft className="h-4 w-4" />
               Volver
             </button>
-            <button
-              type="button"
-              onClick={() => setStep(4)}
-              disabled={blocks.length === 0}
-              className={cn(
-                'flex items-center gap-1.5 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition',
-                blocks.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-800',
+
+            <div className="flex items-center gap-3">
+              {missingTokens.length > 0 && (
+                <span className="text-xs text-amber-600 font-medium hidden sm:inline">
+                  ⚠️ Faltan {missingTokens.length} elemento(s)
+                </span>
               )}
-            >
-              Confirmar bloques
-              <ChevronRight className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={() => setStep(4)}
+                disabled={blocks.length === 0}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition',
+                  blocks.length === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-zinc-800',
+                )}
+              >
+                Confirmar bloques
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </section>
       )}
@@ -570,64 +796,247 @@ type BlockCardProps = {
   index: number
   total: number
   onMove: (index: number, direction: 'up' | 'down') => void
+  onEdit: (
+    index: number,
+    newContent: string,
+    newType: SplitBlock['tipo'],
+    newIndentLevel?: number
+  ) => void
+  onDelete: (index: number) => void
 }
 
-function BlockCard({ block, index, total, onMove }: BlockCardProps) {
+function BlockCard({
+  block,
+  index,
+  total,
+  onMove,
+  onEdit,
+  onDelete,
+}: BlockCardProps) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [draftContent, setDraftContent] = useState(block.contenido)
+  const [draftType, setDraftType] = useState<SplitBlock['tipo']>(block.tipo)
+  const [draftIndent, setDraftIndent] = useState<number>(block.indent_level ?? 0)
+
+  useEffect(() => {
+    setDraftContent(block.contenido)
+    setDraftType(block.tipo)
+    setDraftIndent(block.indent_level ?? 0)
+  }, [block.contenido, block.tipo, block.indent_level])
+
+  const handleSave = () => {
+    onEdit(index, draftContent, draftType, draftIndent)
+    setIsEditing(false)
+  }
+
+  const handleCancel = () => {
+    setDraftContent(block.contenido)
+    setDraftType(block.tipo)
+    setDraftIndent(block.indent_level ?? 0)
+    setIsEditing(false)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      handleSave()
+    } else if (e.key === 'Escape') {
+      handleCancel()
+    }
+  }
+
   const isCodigo = block.tipo === 'codigo'
 
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-sm">
+    <div
+      className={cn(
+        'group flex items-start gap-3 rounded-xl border p-3 shadow-xs transition-all duration-150',
+        isEditing
+          ? 'border-zinc-900 bg-zinc-50/50 ring-2 ring-zinc-900/10'
+          : 'border-zinc-200 bg-white hover:border-zinc-300'
+      )}
+    >
       {/* Number badge */}
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-zinc-100 border border-zinc-200 text-xs font-bold text-zinc-900">
         {index + 1}
       </span>
 
-      {/* Content */}
+      {/* Content area */}
       <div className="flex-1 min-w-0">
-        <div className="mb-1 flex items-center gap-2">
-          <span
-            className={cn(
-              'rounded-md px-2 py-0.5 text-xs font-medium',
-              isCodigo ? 'bg-zinc-100 text-zinc-700' : 'bg-zinc-200 text-zinc-800',
-            )}
-          >
-            {isCodigo ? 'código' : 'indentación'}
-          </span>
-          {block.line_index !== undefined && (
-            <span className="rounded-md bg-zinc-50 border border-zinc-200 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500">
-              línea {block.line_index + 1}
-            </span>
-          )}
-          {block.indent_level > 0 && (
-            <span className="text-xs text-gray-400">nivel {block.indent_level}</span>
+        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+          {isEditing ? (
+            <>
+              {/* Type selector toggle */}
+              <div className="inline-flex rounded-lg border border-zinc-300 bg-zinc-100 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setDraftType('codigo')}
+                  className={cn(
+                    'px-2 py-0.5 rounded-md font-medium transition cursor-pointer',
+                    draftType === 'codigo'
+                      ? 'bg-white text-zinc-900 shadow-xs'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  )}
+                >
+                  código
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDraftType('indentacion')}
+                  className={cn(
+                    'px-2 py-0.5 rounded-md font-medium transition cursor-pointer',
+                    draftType === 'indentacion'
+                      ? 'bg-white text-zinc-900 shadow-xs'
+                      : 'text-zinc-600 hover:text-zinc-900'
+                  )}
+                >
+                  indentación
+                </button>
+              </div>
+
+              {/* Indent level control */}
+              <div className="flex items-center gap-1 text-xs text-zinc-500">
+                <span>Indent:</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={8}
+                  value={draftIndent}
+                  onChange={(e) =>
+                    setDraftIndent(Math.max(0, parseInt(e.target.value) || 0))
+                  }
+                  className="w-12 px-1.5 py-0.5 rounded border border-zinc-300 bg-white font-mono text-xs text-center"
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <span
+                className={cn(
+                  'rounded-md px-2 py-0.5 text-xs font-medium',
+                  isCodigo
+                    ? 'bg-zinc-100 text-zinc-700'
+                    : 'bg-zinc-200 text-zinc-800'
+                )}
+              >
+                {isCodigo ? 'código' : 'indentación'}
+              </span>
+              {block.line_index !== undefined && (
+                <span className="rounded-md bg-zinc-50 border border-zinc-200 px-1.5 py-0.5 text-[11px] font-medium text-zinc-500">
+                  línea {block.line_index + 1}
+                </span>
+              )}
+              {block.indent_level > 0 && (
+                <span className="text-xs text-zinc-400">
+                  nivel {block.indent_level}
+                </span>
+              )}
+            </>
           )}
         </div>
-        <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-gray-800 leading-relaxed">
-          {block.contenido || <span className="italic text-gray-400">(vacío)</span>}
-        </pre>
+
+        {/* Text editor or display */}
+        {isEditing ? (
+          <div className="space-y-2 mt-1">
+            {draftType === 'codigo' ? (
+              <input
+                type="text"
+                value={draftContent}
+                onChange={(e) => setDraftContent(e.target.value)}
+                onKeyDown={handleKeyDown}
+                autoFocus
+                placeholder="Escribe el contenido del bloque..."
+                className="w-full font-mono text-xs text-zinc-900 bg-white border border-zinc-300 rounded-lg px-3 py-2 outline-none focus:border-zinc-900 focus:ring-1 focus:ring-zinc-900 shadow-inner"
+              />
+            ) : (
+              <p className="text-xs text-zinc-400 italic">
+                (Bloque de indentación visual - sin texto)
+              </p>
+            )}
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSave}
+                className="inline-flex items-center gap-1 px-3 py-1 rounded-md bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                Guardar
+              </button>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-zinc-300 bg-white text-zinc-600 text-xs font-medium hover:bg-zinc-100 transition cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" />
+                Cancelar
+              </button>
+              <span className="text-[11px] text-zinc-400 ml-1">
+                Enter para guardar, Esc para cancelar
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-900 leading-relaxed font-medium bg-zinc-50/60 rounded px-2 py-1 max-w-full">
+              {block.contenido || (
+                <span className="italic text-zinc-400 font-normal">
+                  (bloque vacío)
+                </span>
+              )}
+            </pre>
+          </div>
+        )}
       </div>
 
-      {/* Reorder arrows */}
-      <div className="flex flex-col gap-0.5">
-        <button
-          type="button"
-          onClick={() => onMove(index, 'up')}
-          disabled={index === 0}
-          className="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:pointer-events-none"
-          aria-label="Subir bloque"
-        >
-          <ArrowUp className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={() => onMove(index, 'down')}
-          disabled={index === total - 1}
-          className="rounded p-1 text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:opacity-30 disabled:pointer-events-none"
-          aria-label="Bajar bloque"
-        >
-          <ArrowDown className="h-3.5 w-3.5" />
-        </button>
-      </div>
+      {/* Action buttons on the right */}
+      {!isEditing && (
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Edit button */}
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            title="Editar contenido del bloque"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 transition cursor-pointer"
+          >
+            <Edit2 className="h-3.5 w-3.5" />
+          </button>
+
+          {/* Delete button */}
+          <button
+            type="button"
+            onClick={() => onDelete(index)}
+            title="Eliminar bloque"
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+
+          <div className="w-px h-4 bg-zinc-200 mx-0.5" />
+
+          {/* Reorder arrows */}
+          <div className="flex flex-col gap-0.5">
+            <button
+              type="button"
+              onClick={() => onMove(index, 'up')}
+              disabled={index === 0}
+              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+              title="Subir bloque"
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(index, 'down')}
+              disabled={index === total - 1}
+              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
+              title="Bajar bloque"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

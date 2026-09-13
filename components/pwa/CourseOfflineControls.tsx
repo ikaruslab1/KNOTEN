@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import {
   CloudDownload,
   Trash2,
@@ -215,91 +216,96 @@ export default function CourseOfflineControls({
       </div>
 
       {/* Storage Management Modal */}
-      {showStorageModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div
-            className="bg-zinc-900 text-zinc-100 border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5"
-            role="dialog"
-            aria-modal="true"
-          >
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
-              <div className="flex items-center gap-2.5">
-                <HardDrive className="w-5 h-5 text-zinc-400" />
-                <h3 className="font-bold text-base text-white">Almacenamiento Local Offline</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowStorageModal(false)}
-                className="text-zinc-400 hover:text-white p-1 rounded-lg transition"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              PyNodes te permite descargar únicamente los cursos y sesiones que necesitas para
-              resolver actividades en modo sin conexión sin llenar la memoria de tu dispositivo.
-            </p>
-
-            {/* Current Storage Stats */}
-            <div className="bg-zinc-950/70 rounded-xl p-4 border border-zinc-800/80 space-y-2.5 text-xs">
-              <div className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider">
-                Datos guardados en este dispositivo
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-center pt-1">
-                <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
-                  <div className="text-lg font-bold text-white">
-                    {storageStats?.coursesCount ?? 0}
+      {showStorageModal && mounted && typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div
+              className="bg-white text-zinc-900 border border-zinc-200 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150"
+              role="dialog"
+              aria-modal="true"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-zinc-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-zinc-100 text-zinc-700">
+                    <HardDrive className="w-5 h-5 text-zinc-700" />
                   </div>
-                  <div className="text-[10px] text-zinc-400">Cursos</div>
+                  <h3 className="font-bold text-base text-zinc-900">Almacenamiento Local Offline</h3>
                 </div>
-                <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
-                  <div className="text-lg font-bold text-white">
-                    {storageStats?.sessionsCount ?? 0}
-                  </div>
-                  <div className="text-[10px] text-zinc-400">Sesiones</div>
+                <button
+                  type="button"
+                  onClick={() => setShowStorageModal(false)}
+                  className="text-zinc-400 hover:text-zinc-700 p-1.5 rounded-lg hover:bg-zinc-100 transition cursor-pointer"
+                  aria-label="Cerrar modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                PyNodes te permite descargar únicamente los cursos y sesiones que necesitas para
+                resolver actividades en modo sin conexión sin llenar la memoria de tu dispositivo.
+              </p>
+
+              {/* Current Storage Stats */}
+              <div className="bg-zinc-50 rounded-xl p-4 border border-zinc-200/80 space-y-2.5 text-xs">
+                <div className="text-[11px] font-semibold text-zinc-500 uppercase tracking-wider">
+                  Datos guardados en este dispositivo
                 </div>
-                <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-800">
-                  <div className="text-lg font-bold text-white">
-                    {storageStats?.activitiesCount ?? 0}
+                <div className="grid grid-cols-3 gap-2 text-center pt-1">
+                  <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-xs">
+                    <div className="text-lg font-bold text-zinc-900">
+                      {storageStats?.coursesCount ?? 0}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-medium">Cursos</div>
                   </div>
-                  <div className="text-[10px] text-zinc-400">Actividades</div>
+                  <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-xs">
+                    <div className="text-lg font-bold text-zinc-900">
+                      {storageStats?.sessionsCount ?? 0}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-medium">Sesiones</div>
+                  </div>
+                  <div className="bg-white p-2.5 rounded-lg border border-zinc-200 shadow-xs">
+                    <div className="text-lg font-bold text-zinc-900">
+                      {storageStats?.activitiesCount ?? 0}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 font-medium">Actividades</div>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Actions */}
-            <div className="space-y-2 pt-2">
-              <button
-                type="button"
-                onClick={handleClearAllStorage}
-                disabled={isBusy !== null || (storageStats?.activitiesCount ?? 0) === 0}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-950/50 hover:bg-red-900/70 border border-red-800/50 text-red-200 text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {isBusy === 'clearing' ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin text-red-300" />
-                    <span>Borrando almacenamiento...</span>
-                  </>
-                ) : (
-                  <>
-                    <Trash2 className="w-4 h-4 text-red-400" />
-                    <span>Borrar todos los datos offline del dispositivo</span>
-                  </>
-                )}
-              </button>
+              {/* Actions */}
+              <div className="space-y-2 pt-2">
+                <button
+                  type="button"
+                  onClick={handleClearAllStorage}
+                  disabled={isBusy !== null || (storageStats?.activitiesCount ?? 0) === 0}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-50 hover:bg-red-100 border border-red-200 text-red-700 text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {isBusy === 'clearing' ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-red-600" />
+                      <span>Borrando almacenamiento...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4 text-red-600" />
+                      <span>Borrar todos los datos offline del dispositivo</span>
+                    </>
+                  )}
+                </button>
 
-              <button
-                type="button"
-                onClick={() => setShowStorageModal(false)}
-                className="w-full px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-xs font-medium transition cursor-pointer"
-              >
-                Cerrar
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setShowStorageModal(false)}
+                  className="w-full px-4 py-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-medium transition cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
     </>
   )
 }

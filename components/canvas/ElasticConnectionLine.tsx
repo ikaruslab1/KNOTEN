@@ -65,16 +65,6 @@ export default function ElasticConnectionLine({
 
   return (
     <g className="pointer-events-none">
-      {/* Subtle elastic shadow / glow */}
-      <path
-        d={path}
-        fill="none"
-        stroke="#71717a"
-        strokeWidth="4"
-        strokeOpacity="0.25"
-        strokeLinecap="round"
-      />
-
       {/* Main elastic rubber line */}
       <path
         d={path}

@@ -25,6 +25,16 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
   const [isBumping, setIsBumping] = useState(false)
   const prevBumpRef = useRef(bump)
 
+  const [hasEntered, setHasEntered] = useState(false)
+
+  // Mark entrance as finished so animate-cartoon-in is never re-triggered
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setHasEntered(true)
+    }, (entranceDelay + 0.6) * 1000)
+    return () => clearTimeout(timer)
+  }, [entranceDelay])
+
   // Immediate block bump without delay
   useEffect(() => {
     if (bump && bump !== prevBumpRef.current) {
@@ -54,7 +64,10 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
     }
   }, [id, code, updateNodeInternals])
 
-  const handleAnimationEnd = () => {
+  const handleAnimationEnd = (e: React.AnimationEvent) => {
+    if (e.animationName.includes('cartoonBounceIn')) {
+      setHasEntered(true)
+    }
     updateNodeInternals(id)
   }
 
@@ -67,8 +80,12 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
       className={cn(
         'relative rounded-lg border shadow-sm bg-white min-w-[56px] w-fit max-w-none transition-all duration-200 select-none cursor-grab active:cursor-grabbing',
         borderByState[state],
-        // Cartoon entrance / exit animations
-        isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
+        // Cartoon entrance (runs strictly once on initial entrance) / exit animations
+        isExiting
+          ? 'animate-cartoon-out'
+          : !hasEntered
+          ? 'animate-cartoon-in'
+          : '',
         // Immediate block bump on connection impact
         isBumping && 'animate-block-bump',
         // User selection smooth zoom growth
