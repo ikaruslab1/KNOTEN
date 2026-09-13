@@ -1567,11 +1567,20 @@ function FlowCanvasInner({
         )
 
         setNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            draggable: false,
-            data: { ...n.data, state: "success", readOnly: true },
-          }))
+          nds.map((n) => {
+            if (n.type === "sticker" || n.type === "rectangleShape") {
+              return {
+                ...n,
+                draggable: true,
+                data: { ...n.data, readOnly: false },
+              }
+            }
+            return {
+              ...n,
+              draggable: false,
+              data: { ...n.data, state: "success", readOnly: true },
+            }
+          })
         )
 
         setCompletedMap((prev) => {
@@ -1678,13 +1687,22 @@ function FlowCanvasInner({
           }))
         )
 
-        // Mark all nodes as success + read-only
+        // Mark code and indent blocks as success + read-only, but keep stickers and rectangles editable
         setNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            draggable: false,
-            data: { ...n.data, state: "success", readOnly: true },
-          }))
+          nds.map((n) => {
+            if (n.type === "sticker" || n.type === "rectangleShape") {
+              return {
+                ...n,
+                draggable: true,
+                data: { ...n.data, readOnly: false },
+              }
+            }
+            return {
+              ...n,
+              draggable: false,
+              data: { ...n.data, state: "success", readOnly: true },
+            }
+          })
         )
 
         // Mark as completed in local state & localStorage

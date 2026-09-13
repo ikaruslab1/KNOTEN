@@ -2,7 +2,7 @@
 
 import { memo, useState } from 'react'
 import { NodeProps, useReactFlow, NodeResizer } from 'reactflow'
-import { Trash2, X } from 'lucide-react'
+import { Trash2, Move } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type RectangleNodeData = {
@@ -27,10 +27,10 @@ const RectangleNode = memo(({ id, data, selected }: NodeProps<RectangleNodeData>
     setNodes((nodes) => nodes.filter((n) => n.id !== id))
   }
 
-  const showControls = (selected || isHovered) && !data?.readOnly
+  // Rectangles remain interactive even after code execution
+  const showControls = selected || isHovered
   const isRainbow = Boolean(data?.isRainbow)
   const activeBorder = data?.activeBorderColor
-  const activeBg = data?.activeBgColor
 
   return (
     <div
@@ -41,38 +41,38 @@ const RectangleNode = memo(({ id, data, selected }: NodeProps<RectangleNodeData>
     >
       {/* NodeResizer for resizing from aristas (lines) and corners */}
       <NodeResizer
-        isVisible={selected && !data?.readOnly}
+        isVisible={selected}
         minWidth={60}
         minHeight={40}
         lineClassName="!border-zinc-500/80 !border-dashed"
         handleClassName="!w-3 !h-3 !bg-white !border-2 !border-zinc-700 !rounded-xs !shadow-md hover:!scale-125 transition-transform"
       />
 
-      {/* Floating delete button badge */}
+      {/* Center Action Pill: Mover & Borrar buttons (centered, away from aristas) */}
       {showControls && (
-        <div className="absolute -top-10 right-0 flex items-center gap-1.5 bg-white/95 backdrop-blur-md border border-zinc-200 rounded-xl shadow-lg px-2.5 py-1 z-50 nodrag nopan animate-in fade-in zoom-in-95 duration-150">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-1.5 bg-white/95 backdrop-blur-md border border-zinc-200 rounded-xl shadow-xl px-2 py-1.5 z-40 animate-in fade-in zoom-in-95 duration-150 select-none">
+          {/* Mover button / drag handle */}
+          <div
+            className="rect-drag-handle flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-xs font-semibold cursor-grab active:cursor-grabbing transition-colors"
+            title="Arrastra para mover el rectángulo"
+          >
+            <Move className="w-3.5 h-3.5 text-zinc-600" />
+            <span>Mover</span>
+          </div>
+
+          <div className="w-px h-5 bg-zinc-200 mx-0.5" />
+
+          {/* Delete button */}
           <button
             type="button"
             onClick={handleDelete}
-            className="flex items-center gap-1.5 text-xs font-semibold text-zinc-600 hover:text-red-600 transition-colors cursor-pointer"
-            title="Eliminar figura"
+            className="nodrag nopan flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-zinc-600 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+            title="Eliminar rectángulo"
           >
             <Trash2 className="w-3.5 h-3.5 text-red-500" />
             <span>Eliminar</span>
           </button>
         </div>
-      )}
-
-      {/* Corner delete button badge */}
-      {showControls && (
-        <button
-          type="button"
-          onClick={handleDelete}
-          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-zinc-900 text-white hover:bg-red-600 hover:scale-110 flex items-center justify-center shadow-md transition-all nodrag nopan z-50 cursor-pointer"
-          title="Eliminar figura"
-        >
-          <X className="w-3.5 h-3.5" />
-        </button>
       )}
 
       {/* The Rectangle box */}

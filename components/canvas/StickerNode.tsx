@@ -39,7 +39,8 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
     )
   }
 
-  const showControls = (selected || isHovered) && !data?.readOnly
+  // Stickers remain interactive even after code execution
+  const showControls = selected || isHovered
   const isBadge = Boolean(data?.text)
   const baseSize = 64
   const currentSize = Math.round(baseSize * scale)

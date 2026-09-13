@@ -238,10 +238,10 @@ export default function Toolbar({
       <div
         className={cn(
           'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 transform select-none',
-          // Desktop (xl: >= 1280px): centered at top with slide-down-fade
-          'xl:top-4 xl:bottom-auto xl:left-1/2 xl:-translate-x-1/2 xl:animate-slide-down-fade',
-          // Mobile and Tablet: floating above bottom edge for thumb reach
-          'bottom-4 left-1/2 -translate-x-1/2 max-w-[calc(100vw-20px)]',
+          // Desktop (xl: >= 1280px): horizontally on the right at the top
+          'xl:top-4 xl:bottom-auto xl:right-4 xl:left-auto xl:translate-x-0 xl:animate-slide-down-fade',
+          // Mobile: floating bottom center; Tablet (sm:): floating bottom right
+          'bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 max-w-[calc(100vw-20px)]',
           // Mobile & Tablet folded state vs expanded slide up
           isMobileFolded
             ? 'translate-y-28 opacity-0 pointer-events-none xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto'
@@ -262,8 +262,8 @@ export default function Toolbar({
             <div
               className={cn(
                 "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-2xl p-3 w-[295px] sm:w-[335px] max-h-[400px] sm:max-h-[460px] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-2.5",
-                "bottom-18 left-1/2 -translate-x-1/2",
-                "xl:bottom-auto xl:top-16 xl:left-1/2 xl:-translate-x-1/2"
+                "bottom-18 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0",
+                "xl:bottom-auto xl:top-16 xl:right-4 xl:left-auto xl:translate-x-0"
               )}
             >
               {/* Category 1: Emotes */}
@@ -391,8 +391,8 @@ export default function Toolbar({
               <div
                 className={cn(
                   "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-150",
-                  "bottom-18 left-1/2 -translate-x-1/2",
-                  "xl:bottom-auto xl:top-16 xl:left-1/2 xl:-translate-x-1/2"
+                  "bottom-18 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0",
+                  "xl:bottom-auto xl:top-16 xl:right-4 xl:left-auto xl:translate-x-0"
                 )}
               >
                 <span className="text-[10px] font-bold text-zinc-400 px-2.5 py-1 uppercase tracking-wider font-mono">
@@ -502,7 +502,7 @@ export default function Toolbar({
         <button
           type="button"
           onClick={onToggleMobileFold}
-          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 xl:hidden flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-900/95 backdrop-blur-md text-white shadow-xl text-xs font-semibold hover:bg-zinc-800 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200 border border-zinc-700 cursor-pointer"
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 z-50 xl:hidden flex items-center gap-2 px-3.5 py-2 rounded-2xl bg-zinc-900/95 backdrop-blur-md text-white shadow-xl text-xs font-semibold hover:bg-zinc-800 active:scale-95 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200 border border-zinc-700 cursor-pointer"
           title="Desplegar herramientas"
         >
           <PlayCircle size={15} className="text-emerald-400" />
