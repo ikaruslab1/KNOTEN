@@ -133,34 +133,64 @@ function findMissingCodeElements(
   originalTokens: string[],
   currentBlockContents: string[]
 ): string[] {
+  // Copy original tokens to track which ones are satisfied
+  const remainingTokens = [...originalTokens]
+  // Copy block contents to track which blocks have been used
   const remainingBlocks = [...currentBlockContents]
-  const unmatchedTokens: string[] = []
 
-  for (const token of originalTokens) {
-    // 1. Exact match with an entire block
-    const exactIdx = remainingBlocks.indexOf(token)
-    if (exactIdx !== -1) {
-      remainingBlocks.splice(exactIdx, 1)
-      continue
+  // Pass 1: Exact matches between an entire block and an entire token (1-to-1)
+  for (let i = remainingBlocks.length - 1; i >= 0; i--) {
+    const block = remainingBlocks[i]
+    const tokenIdx = remainingTokens.indexOf(block)
+    if (tokenIdx !== -1) {
+      remainingTokens.splice(tokenIdx, 1)
+      remainingBlocks.splice(i, 1)
     }
-
-    // 2. Exact substring within any block
-    const substrIdx = remainingBlocks.findIndex((b) => b.includes(token))
-    if (substrIdx !== -1) {
-      continue
-    }
-
-    unmatchedTokens.push(token)
   }
 
-  if (unmatchedTokens.length === 0) return []
+  // Pass 2: Multi-token blocks (e.g. `.write` has `.` and `write`)
+  // Extract tokens from the block and match 1-to-1 with remainingTokens
+  for (let i = remainingBlocks.length - 1; i >= 0; i--) {
+    const block = remainingBlocks[i]
+    const subTokens = tokenizeLine(block)
+    if (subTokens.length > 1) {
+      let allMatched = true
+      for (const st of subTokens) {
+        const tokenIdx = remainingTokens.indexOf(st)
+        if (tokenIdx !== -1) {
+          remainingTokens.splice(tokenIdx, 1)
+        } else {
+          allMatched = false
+        }
+      }
+      if (allMatched) {
+        remainingBlocks.splice(i, 1)
+      }
+    }
+  }
+
+  if (remainingTokens.length === 0) return []
+
+  // Pass 3: Partial matches (e.g. unclosed string or prefix/suffix missing)
+  // Expand remainingBlocks into fragments (both the whole block and its sub-tokens)
+  const remainingFragments: string[] = []
+  for (const block of remainingBlocks) {
+    if (!block) continue
+    remainingFragments.push(block)
+    const subs = tokenizeLine(block)
+    if (subs.length > 1) {
+      for (const s of subs) {
+        if (!remainingFragments.includes(s)) remainingFragments.push(s)
+      }
+    }
+  }
 
   const missingPieces: string[] = []
 
-  for (const token of unmatchedTokens) {
+  for (const token of remainingTokens) {
     const covered = new Array(token.length).fill(false)
 
-    for (const block of currentBlockContents) {
+    for (const block of remainingFragments) {
       if (!block) continue
 
       // If token is completely inside block
