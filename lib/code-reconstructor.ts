@@ -1,4 +1,4 @@
-import { Node, Edge } from 'reactflow'
+import type { Node, Edge } from 'reactflow'
 
 /**
  * Formats a sequence of Python tokens into a clean statement with standard Python spacing.
@@ -52,38 +52,30 @@ export function reconstructCodeFromCanvas(
   const lineRail = nodes.find((n) => n.type === 'lineRail' || n.id === 'line-rail')
   const nodeMap = new Map<string, Node>(nodes.map((n) => [n.id, n]))
 
-  // Map edges
-  // railLineEdges: map line handle ID (e.g. 'line-1') to target block ID
-  const railLineToTarget = new Map<string, string>()
-  // blockNext: map source block ID to target block ID
-  const blockNext = new Map<string, string>()
-
-  for (const edge of edges) {
-    if (lineRail && edge.source === lineRail.id) {
-      if (edge.sourceHandle) {
-        railLineToTarget.set(edge.sourceHandle, edge.target)
-      }
-    } else {
-      blockNext.set(edge.source, edge.target)
-    }
-  }
-
   const resultLines: string[] = []
 
-  if (lineRail && railLineToTarget.size > 0) {
+  if (lineRail) {
     // ── Mode 1: Reconstruct using Line Rail in descending order (1, 2, 3...) ───
-    const handleMaxLine = Array.from(railLineToTarget.keys()).reduce((max, k) => {
-      const m = k.match(/^line-(\d+)$/)
+    // Find all edges starting from line-rail
+    const railEdges = edges.filter(
+      (e) => e.source === lineRail.id || e.source === 'line-rail'
+    )
+
+    // Calculate maximum line number present on rail
+    const handleMaxLine = railEdges.reduce((max, e) => {
+      const m = (e.sourceHandle || '').match(/^line-(\d+)$/)
       return m ? Math.max(max, parseInt(m[1], 10)) : max
     }, 1)
     const numLines = Math.max(lineRail.data?.lines ?? 1, handleMaxLine)
 
     for (let i = 1; i <= numLines; i++) {
       const handleId = `line-${i}`
-      const startId = railLineToTarget.get(handleId)
-      if (!startId) continue
+      const startEdge = railEdges.find(
+        (e) => e.sourceHandle === handleId || (!e.sourceHandle && i === 1)
+      )
+      if (!startEdge) continue
 
-      const { lineCode } = traverseLineChain(startId, nodeMap, blockNext)
+      const { lineCode } = followLineChain(startEdge, nodeMap, edges)
       if (lineCode.trim()) {
         resultLines.push(lineCode)
       }
@@ -91,23 +83,55 @@ export function reconstructCodeFromCanvas(
   } else {
     // ── Mode 2: Fallback — find chains not originating from line-rail ─────────
     const codeNodes = nodes.filter(
-      (n) => n.type === 'codeBlock' || n.type === 'indentBlock',
+      (n) => n.type === 'codeBlock' || n.type === 'indentBlock'
     )
-    const inDegree = new Map<string, number>()
-    for (const edge of edges) {
-      inDegree.set(edge.target, (inDegree.get(edge.target) || 0) + 1)
+
+    // Set of edges that enter nodes
+    const incomingEdgeTargets = new Set(edges.map((e) => `${e.target}:${e.targetHandle || ''}`))
+    const targetNodeIds = new Set(edges.map((e) => e.target))
+
+    type StartCandidate = {
+      edge?: Edge
+      nodeId: string
+      y: number
+    }
+    const startCandidates: StartCandidate[] = []
+
+    for (const node of codeNodes) {
+      if (node.type === 'indentBlock') {
+        const rows = node.data?.rows ?? 1
+        for (let r = 0; r < rows; r++) {
+          const hasIncoming = incomingEdgeTargets.has(`${node.id}:left-${r}`)
+          const outEdge = edges.find(
+            (e) => e.source === node.id && e.sourceHandle === `right-${r}`
+          )
+          if (!hasIncoming && outEdge) {
+            startCandidates.push({
+              edge: outEdge,
+              nodeId: node.id,
+              y: node.position.y + r * 64,
+            })
+          }
+        }
+      } else if (node.type === 'codeBlock') {
+        if (!targetNodeIds.has(node.id)) {
+          startCandidates.push({
+            nodeId: node.id,
+            y: node.position.y,
+          })
+        }
+      }
     }
 
-    // Heads are nodes with 0 incoming edges
-    const heads = codeNodes
-      .filter((n) => (inDegree.get(n.id) || 0) === 0)
-      .sort((a, b) => a.position.y - b.position.y)
-
+    startCandidates.sort((a, b) => a.y - b.y)
     const visitedGlobally = new Set<string>()
 
-    for (const head of heads) {
-      if (visitedGlobally.has(head.id)) continue
-      const { lineCode, visited } = traverseLineChain(head.id, nodeMap, blockNext)
+    for (const cand of startCandidates) {
+      if (visitedGlobally.has(cand.nodeId)) continue
+      const { lineCode, visited } = cand.edge
+        ? followLineChain(cand.edge, nodeMap, edges)
+        : followCodeNodeChain(cand.nodeId, nodeMap, edges)
+
       visited.forEach((id) => visitedGlobally.add(id))
       if (lineCode.trim()) {
         resultLines.push(lineCode)
@@ -122,37 +146,95 @@ export function reconstructCodeFromCanvas(
 }
 
 /**
- * Traverses a chain of nodes starting from startId, accumulating tokens and indentation.
+ * Follows an edge starting from lineRail or an indentBlock output handle through the chain.
  */
-function traverseLineChain(
-  startId: string,
+function followLineChain(
+  initialEdge: Edge,
   nodeMap: Map<string, Node>,
-  blockNext: Map<string, string>,
+  edges: Edge[],
 ): { lineCode: string; visited: Set<string> } {
   const visited = new Set<string>()
   const tokens: string[] = []
   let indentDepth = 0
-  let curr: string | undefined = startId
 
-  while (curr && !visited.has(curr)) {
-    visited.add(curr)
-    const node = nodeMap.get(curr)
+  let currentTargetId: string | undefined = initialEdge.target
+  let currentTargetHandle: string | null | undefined = initialEdge.targetHandle
+
+  while (currentTargetId) {
+    const visitKey = `${currentTargetId}:${currentTargetHandle || ''}`
+    if (visited.has(visitKey)) break
+    visited.add(visitKey)
+
+    const node = nodeMap.get(currentTargetId)
     if (!node) break
 
-    if (node.type === 'codeBlock') {
+    if (node.type === 'indentBlock') {
+      // Determine indent level from targetHandle (e.g. 'left-0' -> 1, 'left-1' -> 2)
+      let rowIdx = 0
+      if (currentTargetHandle) {
+        const m = currentTargetHandle.match(/left-(\d+)/)
+        if (m) rowIdx = parseInt(m[1], 10)
+      }
+      indentDepth += rowIdx + 1
+
+      // Find the corresponding outgoing edge from this row
+      const outHandle = `right-${rowIdx}`
+      const outEdge =
+        edges.find((e) => e.source === currentTargetId && e.sourceHandle === outHandle) ||
+        edges.find((e) => e.source === currentTargetId)
+
+      if (outEdge) {
+        currentTargetId = outEdge.target
+        currentTargetHandle = outEdge.targetHandle
+      } else {
+        currentTargetId = undefined
+        currentTargetHandle = undefined
+      }
+    } else if (node.type === 'codeBlock') {
       const code = node.data?.code ?? ''
       if (code) tokens.push(code)
-    } else if (node.type === 'indentBlock') {
-      indentDepth += 1
-    }
 
-    curr = blockNext.get(curr)
+      // Find outgoing edge from this code block
+      const outEdge = edges.find((e) => e.source === currentTargetId)
+      if (outEdge) {
+        currentTargetId = outEdge.target
+        currentTargetHandle = outEdge.targetHandle
+      } else {
+        currentTargetId = undefined
+        currentTargetHandle = undefined
+      }
+    } else {
+      // Other node types (e.g. sticker): ignore tokens and follow edge
+      const outEdge = edges.find((e) => e.source === currentTargetId)
+      if (outEdge) {
+        currentTargetId = outEdge.target
+        currentTargetHandle = outEdge.targetHandle
+      } else {
+        currentTargetId = undefined
+        currentTargetHandle = undefined
+      }
+    }
   }
 
   const indentation = ' '.repeat(indentDepth * 4)
   const lineCode = indentation + joinTokens(tokens)
-
   return { lineCode, visited }
+}
+
+/**
+ * Follows a code block chain starting directly from a codeBlock node (used in fallback).
+ */
+function followCodeNodeChain(
+  startNodeId: string,
+  nodeMap: Map<string, Node>,
+  edges: Edge[],
+): { lineCode: string; visited: Set<string> } {
+  const dummyEdge: Edge = {
+    id: 'dummy',
+    source: '',
+    target: startNodeId,
+  }
+  return followLineChain(dummyEdge, nodeMap, edges)
 }
 
 export type BlockForReconstruction = {

@@ -38,6 +38,7 @@ import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
+import { evaluatePythonJS, compareExecutionResults } from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -393,7 +394,7 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   }
   if (node.type === "indentBlock") {
     const rows = node.data?.rows ?? 1
-    return { width: 115, height: rows * 64 + 72 }
+    return { width: 112, height: rows * 64 }
   }
   if (node.type === "sticker") {
     const scale = node.data?.scale ?? 1
@@ -630,14 +631,29 @@ function FlowCanvasInner({
       if (startEdge?.target) {
         const visited = new Set<string>()
         let currentId: string | undefined = startEdge.target
+        let currentInHandle: string | null | undefined = startEdge.targetHandle
 
-        while (currentId && !visited.has(currentId)) {
-          visited.add(currentId)
+        while (currentId && !visited.has(`${currentId}:${currentInHandle || ''}`)) {
+          visited.add(`${currentId}:${currentInHandle || ''}`)
           const n = nodes.find((node) => node.id === currentId)
           if (n) {
             chainNodes.push(n)
-            const nextEdge = edges.find((e) => e.source === currentId)
+            let nextEdge: Edge | undefined
+            if (n.type === 'indentBlock') {
+              let rowIdx = 0
+              if (currentInHandle) {
+                const m = currentInHandle.match(/left-(\d+)/)
+                if (m) rowIdx = parseInt(m[1], 10)
+              }
+              const outHandle = `right-${rowIdx}`
+              nextEdge =
+                edges.find((e) => e.source === currentId && e.sourceHandle === outHandle) ||
+                edges.find((e) => e.source === currentId)
+            } else {
+              nextEdge = edges.find((e) => e.source === currentId)
+            }
             currentId = nextEdge?.target
+            currentInHandle = nextEdge?.targetHandle
           } else {
             break
           }
@@ -674,7 +690,7 @@ function FlowCanvasInner({
             return false
           }
           const { height } = getNodeDimensions(n)
-          const nodeCenterY = n.position.y + (n.type === "indentBlock" ? 68 : height / 2)
+          const nodeCenterY = n.position.y + (n.type === "indentBlock" ? 32 : height / 2)
           return Math.abs(nodeCenterY - handleCenterY) <= 36
         })
 
@@ -696,8 +712,20 @@ function FlowCanvasInner({
         let targetY: number
 
         if (node.type === "indentBlock") {
-          // IndentBlock row 0 handle is at 36 + 32 = 68px from top
-          targetY = handleCenterY - 68
+          // Identify which row of this indentBlock connects to this line
+          let rowIdx = 0
+          const inEdge = edges.find(
+            (e) =>
+              e.target === node.id &&
+              (e.source === "line-rail" || (lineRail && e.source === lineRail.id)) &&
+              (e.sourceHandle === targetHandle || (!e.sourceHandle && targetLine === 1))
+          )
+          if (inEdge?.targetHandle) {
+            const m = inEdge.targetHandle.match(/left-(\d+)/)
+            if (m) rowIdx = parseInt(m[1], 10)
+          }
+          // Row handle center is at rowIdx * 64 + 32 from the top
+          targetY = handleCenterY - (rowIdx * 64 + 32)
         } else {
           targetY = handleCenterY - height / 2
         }
@@ -1275,7 +1303,11 @@ function FlowCanvasInner({
           studentConnSet.has(`${c.source_block_id}->${c.target_block_id}`)
         )
 
-      const isOfflineSuccess = codeMatches || orderMatches || connMatches
+      const refResult = evaluatePythonJS(correctCode)
+      const studentResult = evaluatePythonJS(reconstructedCode)
+      const comp = compareExecutionResults(refResult, studentResult)
+
+      const isOfflineSuccess = comp.isSuccess || codeMatches || orderMatches || connMatches
 
       if (isOfflineSuccess) {
         setTerminalStatus("success")

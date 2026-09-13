@@ -200,9 +200,25 @@ export async function POST(request: NextRequest) {
 
     const comparison = compareExecutionResults(refResult, studentResult)
 
-    isSuccess = comparison.isSuccess || orderCorrect
+    const expectedOutput = (activityData?.resultado_esperado ?? '').trim()
+    const stuStdout = (studentResult.stdout ?? '').trim()
+    const matchesExpected =
+      expectedOutput.length > 0 &&
+      (stuStdout === expectedOutput ||
+        stuStdout.replace(/\s+/g, '') === expectedOutput.replace(/\s+/g, '') ||
+        (studentResult.state &&
+          Object.entries(studentResult.state).some(
+            ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
+          )))
+
+    isSuccess = comparison.isSuccess || matchesExpected || orderCorrect
     responseMessage = comparison.responseMessage
     executionStdout = comparison.displayOutput
+
+    if (matchesExpected && !comparison.isSuccess) {
+      isSuccess = true
+      responseMessage = '¡Correcto! El código se ejecutó y produjo el resultado esperado.'
+    }
 
     if (!isSuccess && !studentResult.success) {
       responseMessage = studentResult.stderr || 'Error de sintaxis o ejecución en Python.'
