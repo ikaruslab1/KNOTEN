@@ -8,126 +8,129 @@ export type PythonExecutionResult = {
   exitCode?: number | null
 }
 
+export type LogicalStatement = {
+  text: string
+  startLine: number
+}
+
 /**
- * Lightweight JavaScript fallback evaluator for basic Python scripts.
- * Supports assignments, arithmetic, strings, f-strings, comparisons, and print statements.
- * Safe for both server-side and browser/offline execution.
+ * Strips comments from Python code while preserving strings.
  */
-export function evaluatePythonJS(code: string): PythonExecutionResult {
+function cleanPythonComments(code: string): string {
   const lines = code.split('\n')
-  const scope: Record<string, unknown> = {}
-  const output: string[] = []
-  let lastExprValue: unknown = undefined
+  return lines
+    .map((l) => {
+      let inStr: string | null = null
+      for (let i = 0; i < l.length; i++) {
+        const ch = l[i]
+        const prev = i > 0 ? l[i - 1] : ''
+        if (inStr) {
+          if (ch === inStr && prev !== '\\') inStr = null
+        } else {
+          if (ch === '"' || ch === "'") inStr = ch
+          else if (ch === '#') return l.slice(0, i)
+        }
+      }
+      return l
+    })
+    .join('\n')
+}
 
-  // Pre-populate common free variables (e.g. x, y) consistently across runs
-  const mockVars = new Set<string>()
-  const primes = [3, 7, 11, 13, 17, 19]
-  let primeIdx = 0
-  const rawWords = code.match(/\b[a-zA-Z_]\w*\b/g) || []
-  const uniqueWords = Array.from(new Set(rawWords)).sort()
-  for (const word of uniqueWords) {
+/**
+ * Splits Python source code into logical statements, correctly grouping
+ * multi-line dictionaries, lists, tuples, and function calls.
+ */
+export function splitIntoLogicalStatements(code: string): LogicalStatement[] {
+  const rawLines = code.split('\n')
+  const statements: LogicalStatement[] = []
+  let current = ''
+  let currentStartLine = 1
+  let parenCount = 0
+  let bracketCount = 0
+  let braceCount = 0
+  let inString: string | null = null
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i]
+    if (!current) {
+      currentStartLine = i + 1
+      current = line
+    } else {
+      current += '\n' + line
+    }
+
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j]
+      const prev = j > 0 ? line[j - 1] : ''
+
+      if (inString) {
+        if (ch === inString && prev !== '\\') {
+          inString = null
+        }
+      } else {
+        if (ch === '"' || ch === "'") {
+          inString = ch
+        } else if (ch === '#') {
+          break
+        } else if (ch === '(') parenCount++
+        else if (ch === ')') parenCount = Math.max(0, parenCount - 1)
+        else if (ch === '[') bracketCount++
+        else if (ch === ']') bracketCount = Math.max(0, bracketCount - 1)
+        else if (ch === '{') braceCount++
+        else if (ch === '}') braceCount = Math.max(0, braceCount - 1)
+      }
+    }
+
     if (
-      !scope[word] &&
-      !['print', 'True', 'False', 'None', 'if', 'else', 'for', 'while', 'def'].includes(word)
+      parenCount === 0 &&
+      bracketCount === 0 &&
+      braceCount === 0 &&
+      !inString &&
+      !line.trimEnd().endsWith('\\')
     ) {
-      scope[word] = primes[primeIdx++ % primes.length]
-      mockVars.add(word)
+      if (current.trim()) {
+        statements.push({
+          text: current,
+          startLine: currentStartLine,
+        })
+      }
+      current = ''
     }
   }
 
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
-    const rawLine = lines[lineIndex]
-    const line = rawLine.trim()
-
-    // Skip empty lines and comments
-    if (!line || line.startsWith('#')) continue
-
-    // Handle print(...)
-    const printMatch = line.match(/^print\s*\(([\s\S]*)\)$/)
-    if (printMatch) {
-      const expr = printMatch[1].trim()
-      try {
-        const val = evaluateExpr(expr, scope)
-        output.push(val !== undefined ? String(val) : '')
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          success: false,
-          stdout: output.join('\n'),
-          stderr: `Traceback (most recent call last):\n  File "<string>", line ${lineIndex + 1}, in <module>\n${msg}`,
-          state: {},
-          exitCode: 1,
-        }
-      }
-      continue
-    }
-
-    // Handle type-annotated or regular assignment: var: type = expr OR var = expr
-    const assignMatch = line.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=\s*([\s\S]+)$/)
-    if (assignMatch) {
-      const varName = assignMatch[1].trim()
-      const expr = assignMatch[2].trim()
-
-      try {
-        const val = evaluateExpr(expr, scope)
-        scope[varName] = val
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          success: false,
-          stdout: output.join('\n'),
-          stderr: `Traceback (most recent call last):\n  File "<string>", line ${lineIndex + 1}, in <module>\n${msg}`,
-          state: {},
-          exitCode: 1,
-        }
-      }
-      continue
-    }
-
-    // Bare expression evaluation
-    try {
-      lastExprValue = evaluateExpr(line, scope)
-      if (lastExprValue !== undefined && output.length === 0) {
-        output.push(String(lastExprValue))
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return {
-        success: false,
-        stdout: output.join('\n'),
-        stderr: `Traceback (most recent call last):\n  File "<string>", line ${lineIndex + 1}, in <module>\n${msg}`,
-        state: {},
-        exitCode: 1,
-      }
-    }
+  if (current.trim()) {
+    statements.push({
+      text: current,
+      startLine: currentStartLine,
+    })
   }
 
-  const state: Record<string, string> = {}
-  for (const [k, v] of Object.entries(scope)) {
-    if (mockVars.has(k)) continue
-    try {
-      state[k] = typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v)
-    } catch {
-      state[k] = String(v)
-    }
-  }
+  return statements
+}
 
-  return {
-    success: true,
-    stdout: output.join('\n'),
-    stderr: '',
-    state,
-    exprResult: lastExprValue !== undefined ? String(lastExprValue) : null,
-    exitCode: 0,
+/**
+ * Produces a deterministic JSON string with keys sorted at all levels.
+ */
+export function canonicalStringify(val: unknown): string {
+  if (val === null || typeof val !== 'object') {
+    return JSON.stringify(val)
   }
+  if (Array.isArray(val)) {
+    return '[' + val.map(canonicalStringify).join(',') + ']'
+  }
+  const obj = val as Record<string, unknown>
+  const sortedKeys = Object.keys(obj).sort()
+  const entries = sortedKeys.map((k) => `${JSON.stringify(k)}:${canonicalStringify(obj[k])}`)
+  return '{' + entries.join(',') + '}'
 }
 
 /**
  * Safely evaluates a basic Python expression in the context of the scope.
  */
 function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
+  let jsExpr = cleanPythonComments(expr).trim()
+
   // Convert Python f-strings: f"Hello, {name}!" -> `Hello, ${name}!`
-  let jsExpr = expr
   if (jsExpr.startsWith('f"') || jsExpr.startsWith("f'")) {
     const content = jsExpr.slice(2, -1)
     const converted = content.replace(/\{([^}]+)\}/g, (_, inner) => `\${${inner}}`)
@@ -156,10 +159,140 @@ function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
 }
 
 /**
+ * Tries to parse a JSON or Python-style stringified dict/list.
+ */
+export function tryParseJsonOrPythonDict(str: string): unknown {
+  if (!str || typeof str !== 'string') return null
+  try {
+    return JSON.parse(str)
+  } catch {}
+  try {
+    const normalized = str
+      .replace(/'/g, '"')
+      .replace(/\bTrue\b/g, 'true')
+      .replace(/\bFalse\b/g, 'false')
+      .replace(/\bNone\b/g, 'null')
+    return JSON.parse(normalized)
+  } catch {}
+  return null
+}
+
+/**
+ * Lightweight JavaScript fallback evaluator for basic Python scripts.
+ * Supports assignments, arithmetic, strings, f-strings, comparisons, dictionaries, lists, and print statements.
+ * Safe for both server-side and browser/offline execution.
+ */
+export function evaluatePythonJS(code: string): PythonExecutionResult {
+  const statements = splitIntoLogicalStatements(code)
+  const scope: Record<string, unknown> = {}
+  const output: string[] = []
+  let lastExprValue: unknown = undefined
+
+  // Pre-populate common free variables (e.g. x, y) consistently across runs
+  const mockVars = new Set<string>()
+  const primes = [3, 7, 11, 13, 17, 19]
+  let primeIdx = 0
+  const rawWords = code.match(/\b[a-zA-Z_]\w*\b/g) || []
+  const uniqueWords = Array.from(new Set(rawWords)).sort()
+  for (const word of uniqueWords) {
+    if (
+      !scope[word] &&
+      !['print', 'True', 'False', 'None', 'if', 'else', 'for', 'while', 'def'].includes(word)
+    ) {
+      scope[word] = primes[primeIdx++ % primes.length]
+      mockVars.add(word)
+    }
+  }
+
+  for (const stmt of statements) {
+    const rawText = stmt.text.trim()
+    if (!rawText || rawText.startsWith('#')) continue
+
+    // Handle print(...)
+    const printMatch = rawText.match(/^print\s*\(([\s\S]*)\)$/)
+    if (printMatch) {
+      const expr = printMatch[1].trim()
+      try {
+        const val = evaluateExpr(expr, scope)
+        output.push(val !== undefined ? String(val) : '')
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          success: false,
+          stdout: output.join('\n'),
+          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
+          state: {},
+          exitCode: 1,
+        }
+      }
+      continue
+    }
+
+    // Handle type-annotated or regular assignment: var: type = expr OR var = expr
+    const assignMatch = rawText.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=\s*([\s\S]+)$/)
+    if (assignMatch) {
+      const varName = assignMatch[1].trim()
+      const expr = assignMatch[2].trim()
+
+      try {
+        const val = evaluateExpr(expr, scope)
+        scope[varName] = val
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          success: false,
+          stdout: output.join('\n'),
+          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
+          state: {},
+          exitCode: 1,
+        }
+      }
+      continue
+    }
+
+    // Bare expression evaluation
+    try {
+      lastExprValue = evaluateExpr(rawText, scope)
+      if (lastExprValue !== undefined && output.length === 0) {
+        output.push(String(lastExprValue))
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return {
+        success: false,
+        stdout: output.join('\n'),
+        stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
+        state: {},
+        exitCode: 1,
+      }
+    }
+  }
+
+  const state: Record<string, string> = {}
+  for (const [k, v] of Object.entries(scope)) {
+    if (mockVars.has(k)) continue
+    try {
+      state[k] = typeof v === 'object' && v !== null ? canonicalStringify(v) : String(v)
+    } catch {
+      state[k] = String(v)
+    }
+  }
+
+  return {
+    success: true,
+    stdout: output.join('\n'),
+    stderr: '',
+    state,
+    exprResult: lastExprValue !== undefined ? String(lastExprValue) : null,
+    exitCode: 0,
+  }
+}
+
+/**
  * Compares reference code execution results with student code execution results.
  * Verifies that the student's code runs without error and produces the exact same result:
  * - Matching console stdout (for print-based programs)
- * - Matching memory/variable states (for assignments and logic, e.g. x = 1)
+ * - Matching memory/variable states (for assignments and logic, e.g. x = 1, dictionaries, etc.)
  * - Matching multi-run test suites for algebraic expressions (e.g. x+y vs y+x)
  */
 export function compareExecutionResults(
@@ -188,7 +321,7 @@ export function compareExecutionResults(
       const stuRun = studentResult.testRuns[i]
       const outMatches = refRun.out === stuRun.out
       const exprMatches = refRun.expr === stuRun.expr
-      const stateMatches = JSON.stringify(refRun.state) === JSON.stringify(stuRun.state)
+      const stateMatches = canonicalStringify(refRun.state) === canonicalStringify(stuRun.state)
       if (!outMatches || !exprMatches || !stateMatches) {
         allRunsMatch = false
         break
@@ -216,34 +349,51 @@ export function compareExecutionResults(
 
   const refKeys = Object.keys(refState)
   for (const k of refKeys) {
-    if (!(k in stuState)) {
+    let stuKey = k
+    if (!(stuKey in stuState)) {
+      // Look for case-insensitive match (e.g. Persona vs persona)
+      const found = Object.keys(stuState).find((sk) => sk.toLowerCase() === k.toLowerCase())
+      if (found) {
+        stuKey = found
+      }
+    }
+
+    if (!(stuKey in stuState)) {
       stateMatches = false
       stateMismatchDetails.push(`Falta definir la variable '${k}'`)
-    } else if (stuState[k] !== refState[k]) {
-      // Try parsing both as JSON in case of differing serialization formats
-      let valsEqual = false
-      try {
-        valsEqual = JSON.stringify(JSON.parse(stuState[k])) === JSON.stringify(JSON.parse(refState[k]))
-      } catch {}
-      if (!valsEqual) {
-        stateMatches = false
-        stateMismatchDetails.push(`Variable '${k}': se esperaba ${refState[k]}, pero tiene ${stuState[k]}`)
+    } else {
+      const refVal = refState[k]
+      const stuVal = stuState[stuKey]
+      if (stuVal !== refVal) {
+        let valsEqual = false
+        const parsedStu = tryParseJsonOrPythonDict(stuVal)
+        const parsedRef = tryParseJsonOrPythonDict(refVal)
+
+        if (parsedStu !== null && parsedRef !== null) {
+          valsEqual = canonicalStringify(parsedStu) === canonicalStringify(parsedRef)
+        } else if (!isNaN(Number(stuVal)) && !isNaN(Number(refVal))) {
+          valsEqual = Number(stuVal) === Number(refVal)
+        } else {
+          const unquote = (s: string) => s.trim().replace(/^['"](.*)['"]$/, '$1')
+          valsEqual = unquote(stuVal) === unquote(refVal)
+        }
+
+        if (!valsEqual) {
+          stateMatches = false
+          stateMismatchDetails.push(`Variable '${k}': se esperaba ${refVal}, pero tiene ${stuVal}`)
+        }
       }
     }
   }
 
   let isSuccess = false
   if (refStdout !== '') {
-    // Code has output / print / expression: stdout must match and any defined variables must match
     isSuccess = (stuStdout === refStdout) && stateMatches
   } else if (refResult.exprResult !== undefined && refResult.exprResult !== null) {
-    // Both produced expression results
     isSuccess = (studentResult.exprResult === refResult.exprResult) && stateMatches
   } else if (refKeys.length > 0) {
-    // Code is pure logic/assignments (e.g. x = 1): states must match
     isSuccess = stateMatches
   } else {
-    // Neither stdout nor variables: code ran without errors
     isSuccess = true
   }
 

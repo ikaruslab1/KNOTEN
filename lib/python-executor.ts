@@ -1,17 +1,26 @@
-import { execFile } from 'child_process'
+import { spawn } from 'child_process'
 import {
   type PythonExecutionResult,
   evaluatePythonJS,
   compareExecutionResults,
+  canonicalStringify,
+  splitIntoLogicalStatements,
+  tryParseJsonOrPythonDict,
 } from './python-evaluator-js'
 
 export type { PythonExecutionResult }
-export { evaluatePythonJS, compareExecutionResults }
+export {
+  evaluatePythonJS,
+  compareExecutionResults,
+  canonicalStringify,
+  splitIntoLogicalStatements,
+  tryParseJsonOrPythonDict,
+}
 
 const PYTHON_HARNESS = `
 import io, contextlib, sys, json, traceback, ast
 
-code = sys.argv[1]
+code = sys.stdin.read()
 
 def run_script(source_code, var_defaults=None):
     tree = ast.parse(source_code)
@@ -103,9 +112,9 @@ except Exception as e:
 /**
  * Executes a string of Python code with a 3-second timeout.
  * 
- * First attempts to run via the system's Python binary (`python -c "..."`) with state capture.
- * If Python is not installed (e.g. certain serverless hosting),
- * it falls back to an internal JavaScript sandbox evaluator.
+ * First attempts to run via the system's Python binary (`python`, `py`, or `python3`) with state capture.
+ * If Python is not installed or available on the host system,
+ * it falls back to the internal JavaScript sandbox evaluator.
  */
 export async function executePythonCode(code: string): Promise<PythonExecutionResult> {
   const binaryResult = await tryExecutePythonBinary(code)
@@ -118,63 +127,105 @@ export async function executePythonCode(code: string): Promise<PythonExecutionRe
 }
 
 /**
- * Attempts execution with Python binary and state capture.
- * Returns null if the python binary is unavailable on the system.
+ * Attempts execution with Python binary candidates ('python', 'py', 'python3').
+ * Sends code via stdin to avoid Windows CLI escaping and length restrictions.
+ * Returns null if no python binary is available on the system.
  */
-function tryExecutePythonBinary(code: string): Promise<PythonExecutionResult | null> {
+async function tryExecutePythonBinary(code: string): Promise<PythonExecutionResult | null> {
+  const binaries = ['python', 'py', 'python3']
+
+  for (const bin of binaries) {
+    const res = await runPythonBinary(bin, code)
+    if (res !== 'ENOENT') {
+      return res
+    }
+  }
+
+  return null
+}
+
+function runPythonBinary(
+  bin: string,
+  code: string,
+): Promise<PythonExecutionResult | 'ENOENT'> {
   return new Promise((resolve) => {
     try {
-      execFile(
-        'python',
-        ['-c', PYTHON_HARNESS, code],
-        { timeout: 3000, maxBuffer: 1024 * 1024 },
-        (error, stdout, stderr) => {
-          if (error) {
-            const errObj = error as unknown as { code?: string }
-            if (errObj?.code === 'ENOENT') {
-              return resolve(null)
-            }
-            return resolve({
-              success: false,
-              stdout: (stdout || '').trim(),
-              stderr: (stderr || error.message || '').trim(),
-              state: {},
-              exitCode: error.code !== undefined ? Number(error.code) : 1,
-            })
-          }
+      const child = spawn(bin, ['-c', PYTHON_HARNESS], {
+        timeout: 3000,
+      })
 
-          const rawStdout = stdout || ''
-          const marker = '__PYNODES_RESULT__'
-          const idx = rawStdout.indexOf(marker)
+      let stdout = ''
+      let stderr = ''
 
-          if (idx !== -1) {
-            try {
-              const payload = JSON.parse(rawStdout.slice(idx + marker.length))
-              return resolve({
-                success: true,
-                stdout: payload.stdout ?? '',
-                stderr: '',
-                state: payload.state ?? {},
-                exprResult: payload.expr ?? null,
-                testRuns: payload.test_runs ?? [],
-                exitCode: 0,
-              })
-            } catch {
-              // Fallback to raw stdout
-            }
-          }
+      child.stdout.on('data', (d) => {
+        stdout += d.toString()
+      })
 
+      child.stderr.on('data', (d) => {
+        stderr += d.toString()
+      })
+
+      child.on('error', (err: unknown) => {
+        const errObj = err as { code?: string }
+        if (errObj?.code === 'ENOENT') {
+          resolve('ENOENT')
+        } else {
           resolve({
-            success: true,
-            stdout: rawStdout.trim(),
-            stderr: (stderr || '').trim(),
+            success: false,
+            stdout: '',
+            stderr: (err as Error).message || String(err),
             state: {},
-            exitCode: 0,
+            exitCode: 1,
           })
-        },
-      )
+        }
+      })
+
+      child.on('close', (exitCode) => {
+        if (exitCode !== 0 && !stdout.includes('__PYNODES_RESULT__')) {
+          resolve({
+            success: false,
+            stdout: stdout.trim(),
+            stderr: (stderr || 'Error de ejecución en Python').trim(),
+            state: {},
+            exitCode: exitCode ?? 1,
+          })
+          return
+        }
+
+        const marker = '__PYNODES_RESULT__'
+        const idx = stdout.indexOf(marker)
+
+        if (idx !== -1) {
+          try {
+            const payload = JSON.parse(stdout.slice(idx + marker.length))
+            resolve({
+              success: true,
+              stdout: payload.stdout ?? '',
+              stderr: '',
+              state: payload.state ?? {},
+              exprResult: payload.expr ?? null,
+              testRuns: payload.test_runs ?? [],
+              exitCode: 0,
+            })
+            return
+          } catch {
+            // Fallback to raw stdout
+          }
+        }
+
+        resolve({
+          success: true,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          state: {},
+          exitCode: 0,
+        })
+      })
+
+      child.stdin.write(code)
+      child.stdin.end()
     } catch {
-      resolve(null)
+      resolve('ENOENT')
     }
   })
 }

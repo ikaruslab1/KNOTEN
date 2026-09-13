@@ -1311,9 +1311,11 @@ function FlowCanvasInner({
 
       if (isOfflineSuccess) {
         setTerminalStatus("success")
-        const outputLines = resultadoEsperado
-          ? resultadoEsperado.split("\n")
-          : ["Código ejecutado exitosamente sin errores (Modo offline)."]
+        const outputLines = comp.displayOutput
+          ? comp.displayOutput.split("\n")
+          : resultadoEsperado
+            ? resultadoEsperado.split("\n")
+            : ["Código ejecutado exitosamente sin errores (Modo offline)."]
         setTerminalLines(outputLines)
 
         setEdges((eds) =>
@@ -1350,10 +1352,13 @@ function FlowCanvasInner({
         return
       } else {
         setTerminalStatus("error")
-        setTerminalLines([
-          "Error: la secuencia de bloques no es correcta.",
-          "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
-        ])
+        const errorLines = comp.responseMessage
+          ? comp.responseMessage.split("\n")
+          : [
+              "Error: la secuencia de bloques no es correcta.",
+              "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
+            ]
+        setTerminalLines(errorLines)
 
         // Flash edges red + spring-back animation
         setEdges((eds) =>
