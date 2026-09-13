@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 
 interface Activity {
   id: string
+  orden?: number
 }
 
 export interface SessionItem {
@@ -20,6 +21,7 @@ export interface SessionItem {
 }
 
 interface CourseSessionsViewProps {
+  courseId?: string
   claseSessions: SessionItem[]
   repasoSessions: SessionItem[]
   isProfessor: boolean
@@ -40,6 +42,7 @@ function isInFuture(dateStr: string | null): boolean {
 }
 
 export default function CourseSessionsView({
+  courseId,
   claseSessions,
   repasoSessions,
   isProfessor,
@@ -51,6 +54,7 @@ export default function CourseSessionsView({
   const handleSessionClick = (session: SessionItem, href: string, isLocked: boolean) => {
     if (isLocked) return
     if (isTransitioning) return
+    if (href === '#' || !session.activities || session.activities.length === 0) return
 
     setSelectedSessionId(session.id)
     setIsTransitioning(true)
@@ -64,12 +68,41 @@ export default function CourseSessionsView({
   const renderSessionCard = (session: SessionItem, index: number) => {
     const locked = isInFuture(session.fecha_liberacion)
     const isLockedForUser = locked && !isProfessor
-    const firstActivityId = session.activities?.[0]?.id
+    const sortedActivities = [...(session.activities || [])].sort(
+      (a, b) => (a.orden ?? 0) - (b.orden ?? 0)
+    )
+    const hasActivities = sortedActivities.length > 0
+    const firstActivityId = sortedActivities[0]?.id
     const href = firstActivityId ? `/actividad/${firstActivityId}` : '#'
 
     const isSelected = selectedSessionId === session.id
     const hasSelection = selectedSessionId !== null
     const isOther = hasSelection && !isSelected
+
+    if (!hasActivities) {
+      return (
+        <div
+          key={session.id}
+          style={{ animationDelay: `${index * 60 + 100}ms` }}
+          className={cn(
+            'rounded-2xl border border-zinc-200 bg-zinc-50/70 p-5 flex flex-col justify-between min-h-[120px] select-none opacity-80',
+            !hasSelection && 'animate-slide-up-fade'
+          )}
+        >
+          <div className="flex items-start justify-between gap-2 text-zinc-400">
+            <span className="font-semibold text-base text-zinc-600">{session.nombre}</span>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 text-zinc-600">
+              Sin actividades
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-4">
+            {isProfessor
+              ? 'Aún no hay actividades creadas en esta sesión.'
+              : 'Próximamente disponible.'}
+          </p>
+        </div>
+      )
+    }
 
     if (isLockedForUser) {
       return (

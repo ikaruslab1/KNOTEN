@@ -7,6 +7,16 @@ import SyncNotification from './SyncNotification'
 export default function PWAProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      if (process.env.NODE_ENV === 'development') {
+        // In local development, unregister any active service worker to avoid stale caching & HMR conflicts
+        navigator.serviceWorker.getRegistrations().then((registrations) => {
+          for (const registration of registrations) {
+            registration.unregister()
+          }
+        })
+        return
+      }
+
       navigator.serviceWorker
         .register('/sw.js')
         .then((registration) => {

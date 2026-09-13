@@ -64,9 +64,37 @@ export default async function ProfesorActividadPage({
        sessions ( id, nombre, courses ( id, nombre ) )`
     )
     .eq('id', id)
-    .single()
+    .maybeSingle()
 
-  if (!activity) notFound()
+  if (!activity) {
+    return (
+      <div className="flex min-h-screen flex-col bg-gray-50">
+        <header className="border-b border-gray-200 bg-white px-6 py-4">
+          <div className="mx-auto max-w-5xl">
+            <nav className="flex items-center gap-1 text-sm text-zinc-500">
+              <Link href="/profesor" className="hover:text-zinc-900 transition-colors">
+                Mis cursos
+              </Link>
+            </nav>
+          </div>
+        </header>
+        <main className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-md w-full bg-white rounded-2xl border border-zinc-200 p-8 shadow-sm text-center">
+            <h2 className="text-xl font-bold text-zinc-900 mb-2">Actividad no encontrada</h2>
+            <p className="text-sm text-zinc-500 mb-6">
+              La actividad que buscas no existe o ha sido eliminada.
+            </p>
+            <Link
+              href="/profesor"
+              className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition"
+            >
+              Volver a Mis Cursos
+            </Link>
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   const activityData = activity as unknown as ActivityDetail
   const session = activityData.sessions

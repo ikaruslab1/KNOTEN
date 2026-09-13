@@ -142,9 +142,40 @@ self.addEventListener('fetch', (event) => {
             if (root) return root
           }
 
-          // 5. Final fallback to offline.html
+          // 5. Fallback to offline.html if cached
           const fallback = await caches.match('/offline.html')
-          return fallback || Response.error()
+          if (fallback) return fallback
+
+          // 6. Safe inline fallback document: NEVER return Response.error() for navigation
+          return new Response(
+            `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Knoten - Sin conexión</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; background: #fafafa; color: #18181b; padding: 20px; box-sizing: border-box; text-align: center; }
+    .card { background: white; border: 1px solid #e4e4e7; border-radius: 20px; padding: 36px 28px; max-width: 420px; width: 100%; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+    h1 { font-size: 19px; margin: 0 0 10px; font-weight: 700; color: #18181b; }
+    p { font-size: 14px; color: #71717a; line-height: 1.5; margin: 0 0 24px; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; background: #18181b; color: white; padding: 11px 22px; border-radius: 12px; text-decoration: none; font-size: 13px; font-weight: 600; cursor: pointer; border: none; transition: background 0.15s ease; }
+    .btn:hover { background: #27272a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>No se pudo conectar</h1>
+    <p>Comprueba tu conexión a internet o intenta recargar la página.</p>
+    <button class="btn" onclick="window.location.reload()">Reintentar</button>
+  </div>
+</body>
+</html>`,
+            {
+              status: 200,
+              headers: { 'Content-Type': 'text/html; charset=utf-8' },
+            }
+          )
         })
     )
     return

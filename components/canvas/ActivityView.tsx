@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import FlowCanvas, { Block, BlockConnection } from './FlowCanvas'
-import { getOfflineActivity, getOfflineActivitiesBySession } from '@/lib/offline/db'
+import { getOfflineActivity, getOfflineActivitiesBySession, saveActivity } from '@/lib/offline/db'
+import { createClient } from '@/lib/supabase/client'
 import { Loader2, AlertCircle, RefreshCw, Home } from 'lucide-react'
 import Link from 'next/link'
 
@@ -64,7 +65,7 @@ export default function ActivityView({
         return
       }
 
-      // 3. Otherwise (e.g. offline navigation, generic activity shell, or server returned null): load from IndexedDB!
+      // 3. Check IndexedDB offline cache
       try {
         const offlineAct = await getOfflineActivity(targetId)
         if (offlineAct && isMounted) {
@@ -110,7 +111,148 @@ export default function ActivityView({
         console.warn('Could not read activity from IndexedDB:', err)
       }
 
-      // 4. Fallback if initialActivity was provided but ID differed
+      // 4. Fetch directly from Supabase on client if not in IndexedDB
+      try {
+        const supabase = createClient()
+        const { data: act, error } = await supabase
+          .from('activities')
+          .select(`
+            id,
+            titulo,
+            enunciado,
+            resultado_esperado,
+            orden,
+            session_id,
+            sessions (
+              id,
+              nombre,
+              tipo,
+              curso_id,
+              courses (
+                id,
+                nombre
+              )
+            ),
+            blocks (
+              id,
+              activity_id,
+              tipo,
+              contenido,
+              posicion_x,
+              posicion_y,
+              indent_level,
+              orden_correcto
+            ),
+            connections (
+              id,
+              activity_id,
+              source_block_id,
+              target_block_id,
+              source_handle,
+              target_handle,
+              orden
+            )
+          `)
+          .eq('id', targetId)
+          .maybeSingle()
+
+        if (act && !error && isMounted) {
+          const rawBlocks = (act.blocks as any[]) ?? []
+          const sortedBlocks: Block[] = [...rawBlocks].sort(
+            (a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0)
+          )
+
+          const sessionData = act.sessions as any
+          const courseId = sessionData?.curso_id || sessionData?.courses?.id || ''
+          const courseName = sessionData?.courses?.nombre || ''
+          const sessionType: 'clase' | 'repaso' = sessionData?.tipo || 'clase'
+          const sessionName: string = sessionData?.nombre || ''
+
+          // Load siblings
+          let sessionActivities: { id: string; titulo: string; orden: number }[] = []
+          try {
+            const { data: siblings } = await supabase
+              .from('activities')
+              .select('id, titulo, orden')
+              .eq('session_id', act.session_id)
+              .order('orden', { ascending: true })
+            if (siblings) {
+              sessionActivities = siblings
+            }
+          } catch {}
+
+          // Load progress
+          let initialCompletedMap: Record<string, boolean> = {}
+          try {
+            const {
+              data: { user },
+            } = await supabase.auth.getUser()
+            if (user && sessionActivities.length > 0) {
+              const { data: progressRows } = await supabase
+                .from('progress')
+                .select('activity_id, completado')
+                .eq('student_id', user.id)
+                .in('activity_id', sessionActivities.map((a) => a.id))
+
+              if (progressRows) {
+                for (const p of progressRows) {
+                  if (p.completado) initialCompletedMap[p.activity_id] = true
+                }
+              }
+            }
+          } catch {}
+
+          const resolvedData: ActivityViewInitialData = {
+            id: act.id,
+            titulo: act.titulo,
+            orden: act.orden,
+            enunciado: act.enunciado,
+            resultado_esperado: act.resultado_esperado,
+            blocks: sortedBlocks,
+            connections: (act.connections as BlockConnection[]) ?? [],
+            courseId,
+            courseName,
+            sessionType,
+            sessionName,
+            sessionActivities,
+            initialCompletedMap,
+          }
+
+          // Cache for future offline usage
+          try {
+            await saveActivity({
+              id: act.id,
+              session_id: act.session_id,
+              titulo: act.titulo,
+              enunciado: act.enunciado,
+              resultado_esperado: act.resultado_esperado,
+              orden: act.orden,
+              blocks: sortedBlocks,
+              connections: (act.connections as any[]) ?? [],
+              curso_id: courseId,
+              curso_nombre: courseName,
+              session_tipo: sessionType,
+              session_nombre: sessionName,
+            } as any)
+          } catch {}
+
+          setData(resolvedData)
+          setIsLoading(false)
+          setErrorMsg(null)
+          return
+        }
+
+        if (!act && !error && isMounted) {
+          // Explicitly confirmed that activity does not exist
+          setIsLoading(false)
+          setErrorMsg('La actividad que buscas no existe o fue eliminada.')
+          return
+        }
+      } catch (clientErr) {
+        console.warn('Client-side Supabase fetch failed:', clientErr)
+      }
+
+      // 5. Fallback if initialActivity was provided but ID differed
       if (initialActivity && isMounted) {
         setData(initialActivity)
         setIsLoading(false)
@@ -118,12 +260,16 @@ export default function ActivityView({
         return
       }
 
-      // 5. Activity not found in IndexedDB or online
+      // 6. Activity not found anywhere or offline failure
       if (isMounted) {
         setIsLoading(false)
-        setErrorMsg(
-          'Esta actividad no está disponible sin conexión. Conéctate a internet para sincronizarla.'
-        )
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          setErrorMsg(
+            'Esta actividad no está disponible sin conexión. Conéctate a internet para sincronizarla.'
+          )
+        } else {
+          setErrorMsg('La actividad que buscas no existe o fue eliminada.')
+        }
       }
     }
 
