@@ -40,22 +40,33 @@ export default function ActivityView({
     let isMounted = true
 
     async function resolveActivity() {
-      // 1. Determine active activity ID from URL path or prop
+      // 1. If initialActivity is provided and matches activityId (or activityId is generic), use it immediately!
+      if (initialActivity && (initialActivity.id === activityId || !activityId || activityId === 'actividad-shell')) {
+        if (isMounted) {
+          setData(initialActivity)
+          setIsLoading(false)
+          setErrorMsg(null)
+        }
+        return
+      }
+
+      // 2. Determine active activity ID safely (avoid picking up previous page's pathname like /curso/[id])
       let targetId = activityId
-      if (typeof window !== 'undefined') {
-        const segments = window.location.pathname.split('/').filter(Boolean)
-        const lastSegment = segments[segments.length - 1]
-        if (
-          lastSegment &&
-          lastSegment !== 'actividad' &&
-          lastSegment !== 'offline' &&
-          lastSegment !== 'actividad-shell'
-        ) {
-          targetId = lastSegment
+      if (!targetId || targetId === 'actividad-shell' || targetId === 'offline') {
+        if (typeof window !== 'undefined') {
+          const segments = window.location.pathname.split('/').filter(Boolean)
+          const actIdx = segments.indexOf('actividad')
+          if (actIdx !== -1 && segments[actIdx + 1]) {
+            targetId = segments[actIdx + 1]
+          }
         }
       }
 
-      // 2. If initialActivity matches targetId, use it immediately
+      if (!targetId && initialActivity) {
+        targetId = initialActivity.id
+      }
+
+      // If initialActivity matches targetId, use it!
       if (initialActivity && initialActivity.id === targetId) {
         if (isMounted) {
           setData(initialActivity)
