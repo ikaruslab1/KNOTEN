@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import DeleteCourseTrigger from '@/components/professor/DeleteCourseTrigger'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -217,25 +218,36 @@ export default function CreateCourseModal({ isOpen, onClose, course }: Props) {
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100"
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className={cn(
-              'flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition',
-              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <div>
+            {isEditing && course && (
+              <DeleteCourseTrigger
+                courseId={course.id}
+                courseName={course.nombre}
+                variant="button"
+              />
             )}
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? 'Guardando…' : isEditing ? 'Guardar cambios' : 'Crear curso'}
-          </button>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-100 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className={cn(
+                'flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition cursor-pointer',
+                saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
+              )}
+            >
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving ? 'Guardando…' : isEditing ? 'Guardar cambios' : 'Crear curso'}
+            </button>
+          </div>
         </div>
       </form>
     </dialog>

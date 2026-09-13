@@ -1,12 +1,13 @@
 'use client'
 import { memo, useState, useEffect, useRef } from 'react'
-import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
-import { LayoutTemplate, Plus, Minus } from 'lucide-react'
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow'
+import { LayoutTemplate, Plus, Minus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type IndentBlockData = {
   rows?: number
   onResize?: (rows: number) => void
+  onDelete?: (id: string) => void
   readOnly?: boolean
   bump?: number
   isExiting?: boolean
@@ -19,7 +20,9 @@ const HEADER_HEIGHT = 36
 const FOOTER_HEIGHT = 36
 
 const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) => {
+  const { setNodes, setEdges } = useReactFlow()
   const [rows, setRows] = useState<number>(data?.rows ?? 1)
+  const [isHovered, setIsHovered] = useState(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const { bump, isExiting, entranceDelay = 0 } = data || {}
   const [isBumping, setIsBumping] = useState(false)
@@ -79,6 +82,13 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
     setTimeout(() => updateNodeInternals(id), 10)
   }
 
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    data?.onDelete?.(id)
+    setNodes((nds) => nds.filter((n) => n.id !== id))
+    setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
+  }
+
   const handleAnimationEnd = (e: React.AnimationEvent) => {
     if (e.animationName.includes('cartoonBounceIn')) {
       setHasEntered(true)
@@ -88,13 +98,15 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
 
   return (
     <div
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
       onAnimationEnd={handleAnimationEnd}
       style={{
         height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT,
         animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}
       className={cn(
-        'relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all cursor-grab active:cursor-grabbing',
+        'relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all cursor-grab active:cursor-grabbing group',
         isExiting
           ? 'animate-cartoon-out'
           : !hasEntered
@@ -106,6 +118,18 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
           : 'hover:scale-[1.01]'
       )}
     >
+      {/* Floating direct delete badge on corner when selected or hovered */}
+      {!data?.readOnly && (selected || isHovered) && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          title="Eliminar bloque de indentación"
+          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-zinc-900 text-white hover:bg-red-600 flex items-center justify-center shadow-md transition-all nodrag nopan z-40 cursor-pointer animate-in fade-in zoom-in-90 duration-150"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      )}
+
       {/* Header (36px - matches LineRailNode header) */}
       <div className="h-[36px] flex items-center justify-between px-2.5 border-b border-zinc-300 bg-zinc-300/40 rounded-t-2xl">
         <div className="flex items-center gap-1 text-zinc-700">
@@ -114,9 +138,21 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
             Indent
           </span>
         </div>
-        <span className="text-[10px] font-mono text-zinc-500 font-medium">
-          1..{rows}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] font-mono text-zinc-500 font-medium">
+            1..{rows}
+          </span>
+          {!data?.readOnly && (
+            <button
+              type="button"
+              onClick={handleDelete}
+              title="Eliminar bloque de indentación"
+              className="flex items-center justify-center w-5 h-5 rounded text-zinc-400 hover:text-red-600 hover:bg-red-100/60 transition nodrag nopan cursor-pointer ml-0.5"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Row dividers + handles (each 64px - matches LineRailNode row) */}

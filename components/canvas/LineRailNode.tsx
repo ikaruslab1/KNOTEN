@@ -2,12 +2,13 @@
 
 import { memo, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
-import { ArrowRight, Hash, Plus, Minus } from 'lucide-react'
+import { ArrowRight, Hash, Plus, Minus, AlignCenterHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type LineRailData = {
   lines?: number
   onLinesChange?: (lines: number) => void
+  onAlignLine?: (lineNum: number) => void
   readOnly?: boolean
 }
 
@@ -97,8 +98,21 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
                 </span>
               </div>
 
-              {/* Right side: arrow indicator */}
-              <div className="flex items-center pr-2">
+              {/* Right side: align row button + arrow indicator */}
+              <div className="flex items-center gap-0.5 pr-1">
+                {!data?.readOnly && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      data?.onAlignLine?.(lineNum)
+                    }}
+                    title={`Alinear horizontalmente elementos de la línea ${lineNum}`}
+                    className="w-5 h-5 rounded flex items-center justify-center text-zinc-400 hover:text-zinc-900 hover:bg-zinc-200 transition nodrag nopan cursor-pointer"
+                  >
+                    <AlignCenterHorizontal className="w-3.5 h-3.5" />
+                  </button>
+                )}
                 <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
               </div>
 

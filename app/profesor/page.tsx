@@ -5,6 +5,7 @@ import { BookOpen } from 'lucide-react'
 import { createClient, getCurrentProfile } from '@/lib/supabase/server'
 import CreateCourseModalTrigger from '@/components/professor/CreateCourseModalTrigger'
 import EditCourseModalTrigger from '@/components/professor/EditCourseModalTrigger'
+import DeleteCourseTrigger from '@/components/professor/DeleteCourseTrigger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -96,7 +97,7 @@ function CourseCard({ course }: { course: Course }) {
         </h2>
 
         {/* Actions */}
-        <div className="mt-auto flex gap-2">
+        <div className="mt-auto flex items-center gap-1.5">
           <Link
             href={`/profesor/curso/${course.id}`}
             className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-xs font-medium text-zinc-900 transition hover:bg-zinc-200"
@@ -105,6 +106,11 @@ function CourseCard({ course }: { course: Course }) {
             Ver sesiones
           </Link>
           <EditCourseModalTrigger course={course} />
+          <DeleteCourseTrigger
+            courseId={course.id}
+            courseName={course.nombre}
+            variant="card"
+          />
         </div>
       </div>
     </article>

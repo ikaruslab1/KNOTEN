@@ -470,6 +470,23 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
   }, [blocks])
 
   const missingIndentCount = Math.max(0, originalIndentCount - currentIndentCount)
+  const extraIndentCount = Math.max(0, currentIndentCount - originalIndentCount)
+
+  const handleRemoveExtraIndent = useCallback(() => {
+    setBlocks((prev) => {
+      let countToRemove = currentIndentCount - originalIndentCount
+      if (countToRemove <= 0) return prev
+      const newBlocks: SplitBlock[] = []
+      for (let i = prev.length - 1; i >= 0; i--) {
+        if (prev[i].tipo === 'indentacion' && countToRemove > 0) {
+          countToRemove--
+          continue
+        }
+        newBlocks.unshift(prev[i])
+      }
+      return newBlocks.map((b, idx) => ({ ...b, orden_correcto: idx }))
+    })
+  }, [currentIndentCount, originalIndentCount])
 
   // ── Step 4: save ──────────────────────────────────────────────────────────
   async function handleSave() {
@@ -630,7 +647,7 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
           </div>
 
           {/* Real-time missing elements banner */}
-          {missingTokens.length > 0 || missingIndentCount > 0 ? (
+          {missingTokens.length > 0 || missingIndentCount > 0 || extraIndentCount > 0 ? (
             <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900 shadow-xs animate-in fade-in duration-150">
               <div className="flex items-start gap-3">
                 <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
@@ -667,9 +684,25 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
                       <button
                         type="button"
                         onClick={() => handleAddBlock('indentacion', '')}
-                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 transition shadow-xs"
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-white border border-amber-300 text-amber-900 text-xs font-semibold hover:bg-amber-100 transition shadow-xs cursor-pointer"
                       >
                         <Plus className="w-3 h-3" /> Agregar indentación
+                      </button>
+                    </div>
+                  )}
+
+                  {extraIndentCount > 0 && (
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-xs font-medium text-amber-800">
+                        Hay {extraIndentCount} bloque(s) de indentación extra agregados:
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleRemoveExtraIndent}
+                        className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-white border border-red-300 text-red-700 text-xs font-semibold hover:bg-red-50 hover:border-red-400 transition shadow-xs cursor-pointer"
+                        title="Eliminar los bloques de indentación sobrantes"
+                      >
+                        <Trash2 className="w-3 h-3" /> Eliminar sobrantes
                       </button>
                     </div>
                   )}
@@ -1305,7 +1338,13 @@ function BlockCard({
               className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-900 leading-relaxed font-medium bg-zinc-50/60 hover:bg-zinc-100/80 rounded px-2 py-1 max-w-full cursor-pointer transition"
               title="Haz clic para editar"
             >
-              {block.contenido || (
+              {block.contenido ? (
+                block.contenido
+              ) : !isCodigo ? (
+                <span className="font-mono text-xs text-zinc-600 font-semibold flex items-center gap-1.5">
+                  <span className="text-zinc-400">⇥</span> Indentación (nivel {block.indent_level || 1})
+                </span>
+              ) : (
                 <span className="italic text-zinc-400 font-normal">
                   (bloque vacío)
                 </span>
@@ -1332,8 +1371,13 @@ function BlockCard({
           <button
             type="button"
             onClick={() => onDelete(index)}
-            title="Eliminar bloque"
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-red-600 hover:bg-red-50 transition cursor-pointer"
+            title={isCodigo ? "Eliminar bloque de código" : "Eliminar bloque de indentación"}
+            className={cn(
+              "p-1.5 rounded-lg transition cursor-pointer",
+              !isCodigo
+                ? "text-red-500 hover:text-red-700 hover:bg-red-50 bg-red-50/50"
+                : "text-zinc-400 hover:text-red-600 hover:bg-red-50"
+            )}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>

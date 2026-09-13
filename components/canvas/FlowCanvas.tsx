@@ -11,6 +11,7 @@ import ReactFlow, {
   updateEdge,
   useReactFlow,
   useUpdateNodeInternals,
+  useViewport,
   ReactFlowProvider,
   BaseEdge,
   getBezierPath,
@@ -351,6 +352,76 @@ function getStudentBlockOrder(edges: Edge[], nodes: Node[]): string[] {
   return order
 }
 
+// ─── Helper: Get accurate dimensions for smart center calculations ───────────
+
+function getNodeDimensions(node: Node): { width: number; height: number } {
+  if (node.width && node.height) {
+    return { width: node.width, height: node.height }
+  }
+  if (node.type === "lineRail") {
+    const lines = node.data?.lines ?? 1
+    return { width: 130, height: lines * 64 + 72 }
+  }
+  if (node.type === "indentBlock") {
+    const rows = node.data?.rows ?? 1
+    return { width: 115, height: rows * 64 + 72 }
+  }
+  if (node.type === "sticker") {
+    const scale = node.data?.scale ?? 1
+    return { width: 64 * scale, height: 64 * scale }
+  }
+  // codeBlock default estimate
+  const code = String(node.data?.code ?? "")
+  const estWidth = Math.max(70, 44 + code.length * 8.5)
+  return { width: estWidth, height: 42 }
+}
+
+// ─── Component: Smart Guides overlay ──────────────────────────────────────────
+
+function SmartGuides({
+  guideLines,
+}: {
+  guideLines: { x: number | null; y: number | null }
+}) {
+  const { x: vpX, y: vpY, zoom } = useViewport()
+
+  if (guideLines.x === null && guideLines.y === null) return null
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-40 overflow-hidden select-none">
+      {guideLines.x !== null && (
+        <div
+          className="absolute top-0 bottom-0 border-l-2 border-dashed border-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.7)]"
+          style={{ left: guideLines.x * zoom + vpX }}
+        >
+          <div className="absolute top-4 -left-7 bg-sky-600/95 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 animate-in fade-in zoom-in-90 duration-100">
+            Centro
+          </div>
+        </div>
+      )}
+      {guideLines.y !== null && (
+        <div
+          className="absolute left-0 right-0 border-t-2 border-dashed border-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.7)]"
+          style={{ top: guideLines.y * zoom + vpY }}
+        >
+          <div className="absolute left-4 -top-6 bg-sky-600/95 text-white text-[9px] font-mono font-bold px-1.5 py-0.5 rounded shadow flex items-center gap-1 animate-in fade-in zoom-in-90 duration-100">
+            Centro
+          </div>
+        </div>
+      )}
+      {guideLines.x !== null && guideLines.y !== null && (
+        <div
+          className="absolute w-2.5 h-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-sky-500 shadow-md ring-2 ring-sky-300 animate-ping-once"
+          style={{
+            left: guideLines.x * zoom + vpX,
+            top: guideLines.y * zoom + vpY,
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
 // ─── Inner canvas (needs useReactFlow) ───────────────────────────────────────
 
 function FlowCanvasInner({
@@ -403,6 +474,220 @@ function FlowCanvasInner({
   const clearBurst = useCallback((id: string) => {
     setBursts((prev) => prev.filter((b) => b.id !== id))
   }, [])
+
+  // ── Smart Guides & Snapping state ─────────────────────────────────────────
+  const [smartGuidesEnabled, setSmartGuidesEnabled] = useState<boolean>(true)
+  const [guideLines, setGuideLines] = useState<{ x: number | null; y: number | null }>({
+    x: null,
+    y: null,
+  })
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("knoten_smart_guides_enabled")
+      if (saved !== null) {
+        setSmartGuidesEnabled(saved === "true")
+      }
+    } catch {
+      // ignore
+    }
+  }, [])
+
+  const handleToggleSmartGuides = useCallback(() => {
+    setSmartGuidesEnabled((prev) => {
+      const next = !prev
+      try {
+        localStorage.setItem("knoten_smart_guides_enabled", String(next))
+      } catch {
+        // ignore
+      }
+      if (!next) {
+        setGuideLines({ x: null, y: null })
+      }
+      return next
+    })
+  }, [])
+
+  const onNodeDrag = useCallback(
+    (_: React.MouseEvent, draggedNode: Node) => {
+      if (!smartGuidesEnabled) {
+        if (guideLines.x !== null || guideLines.y !== null) {
+          setGuideLines({ x: null, y: null })
+        }
+        return
+      }
+
+      const { width: dW, height: dH } = getNodeDimensions(draggedNode)
+      const dCenterX = draggedNode.position.x + dW / 2
+      const dCenterY = draggedNode.position.y + dH / 2
+
+      let matchedSnapX: number | null = null
+      let matchedGuideX: number | null = null
+      let matchedSnapY: number | null = null
+      let matchedGuideY: number | null = null
+      let minDiffX = Infinity
+      let minDiffY = Infinity
+
+      const SNAP_THRESHOLD = 8 // canvas coordinates snap distance
+
+      for (const other of nodes) {
+        if (other.id === draggedNode.id) continue
+        const { width: oW, height: oH } = getNodeDimensions(other)
+        const oCenterX = other.position.x + oW / 2
+        const oCenterY = other.position.y + oH / 2
+
+        // Check vertical guide (X center match)
+        const diffX = Math.abs(dCenterX - oCenterX)
+        if (diffX <= SNAP_THRESHOLD && diffX < minDiffX) {
+          minDiffX = diffX
+          matchedGuideX = oCenterX
+          matchedSnapX = oCenterX - dW / 2
+        }
+
+        // Check horizontal guide (Y center match)
+        const diffY = Math.abs(dCenterY - oCenterY)
+        if (diffY <= SNAP_THRESHOLD && diffY < minDiffY) {
+          minDiffY = diffY
+          matchedGuideY = oCenterY
+          matchedSnapY = oCenterY - dH / 2
+        }
+      }
+
+      if (matchedSnapX !== null) {
+        draggedNode.position.x = matchedSnapX
+      }
+      if (matchedSnapY !== null) {
+        draggedNode.position.y = matchedSnapY
+      }
+
+      setGuideLines({ x: matchedGuideX, y: matchedGuideY })
+    },
+    [smartGuidesEnabled, nodes, guideLines.x, guideLines.y]
+  )
+
+  const onNodeDragStop = useCallback(() => {
+    setGuideLines({ x: null, y: null })
+  }, [])
+
+  // ── Horizontal alignment for rows of code ──────────────────────────────────
+  const alignLine = useCallback(
+    (lineNumber: number = 1) => {
+      const lineRail = nodes.find((n) => n.type === "lineRail" || n.id === "line-rail")
+      const targetHandle = `line-${lineNumber}`
+
+      const railLines = lineRail?.data?.lines ?? 1
+      const clampedLine = Math.min(Math.max(1, lineNumber), railLines)
+
+      const railX = lineRail ? lineRail.position.x : 30
+      const railY = lineRail ? lineRail.position.y : 80
+      const railWidth = lineRail?.width ?? 130
+
+      // Handle center Y for this line: 36px header + (line-1)*64 + 32
+      const handleCenterY = railY + 36 + (clampedLine - 1) * 64 + 32
+
+      // Find the edge originating from lineRail at this handle
+      const startEdge = edges.find(
+        (e) =>
+          (e.source === "line-rail" || (lineRail && e.source === lineRail.id)) &&
+          (e.sourceHandle === targetHandle || (!e.sourceHandle && clampedLine === 1))
+      )
+
+      const chainNodes: Node[] = []
+      const visited = new Set<string>()
+      let currentId = startEdge?.target
+
+      while (currentId && !visited.has(currentId)) {
+        visited.add(currentId)
+        const n = nodes.find((node) => node.id === currentId)
+        if (n) {
+          chainNodes.push(n)
+          const nextEdge = edges.find((e) => e.source === currentId)
+          currentId = nextEdge?.target
+        } else {
+          break
+        }
+      }
+
+      // Fallback: if no nodes connected to this line rail handle, check selected nodes
+      let nodesToAlign = chainNodes
+      if (nodesToAlign.length === 0) {
+        const selected = nodes.filter((n) => n.selected && n.type !== "lineRail")
+        if (selected.length > 0) {
+          nodesToAlign = [...selected].sort((a, b) => a.position.x - b.position.x)
+        }
+      }
+
+      if (nodesToAlign.length === 0) return
+
+      // Compute horizontal alignment
+      const startX = lineRail ? railX + railWidth + 36 : nodesToAlign[0].position.x
+      let currentX = startX
+
+      const updatedPositions = new Map<string, { x: number; y: number }>()
+
+      for (const node of nodesToAlign) {
+        const { width, height } = getNodeDimensions(node)
+        let targetY: number
+
+        if (node.type === "indentBlock") {
+          // IndentBlock row 0 handle is at 36 + 32 = 68px from top
+          targetY = handleCenterY - 68
+        } else {
+          targetY = handleCenterY - height / 2
+        }
+
+        updatedPositions.set(node.id, { x: currentX, y: targetY })
+        currentX += width + 28
+      }
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          const pos = updatedPositions.get(n.id)
+          if (pos) {
+            return {
+              ...n,
+              position: pos,
+            }
+          }
+          return n
+        })
+      )
+
+      setTimeout(() => {
+        nodesToAlign.forEach((n) => updateNodeInternals(n.id))
+        if (lineRail) updateNodeInternals(lineRail.id)
+      }, 20)
+    },
+    [nodes, edges, updateNodeInternals, setNodes]
+  )
+
+  const alignAllLines = useCallback(() => {
+    const lineRail = nodes.find((n) => n.type === "lineRail" || n.id === "line-rail")
+    const totalLines = lineRail?.data?.lines ?? 1
+    for (let i = 1; i <= totalLines; i++) {
+      alignLine(i)
+    }
+  }, [nodes, alignLine])
+
+  // Keep onAlignLine wired to lineRailNode
+  useEffect(() => {
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (n.type === "lineRail" || n.id === "line-rail") {
+          if (n.data?.onAlignLine !== alignLine) {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                onAlignLine: alignLine,
+              },
+            }
+          }
+        }
+        return n
+      })
+    )
+  }, [alignLine, setNodes])
 
   // ── Activity switch with cartoon bounce zoom-out exit ──────────────────────
   const handleSwitchActivity = useCallback(
@@ -1233,6 +1518,11 @@ function FlowCanvasInner({
         onCenter={onCenter}
         onAddSticker={onAddSticker}
         onAddIndentBlock={onAddIndentBlock}
+        smartGuidesEnabled={smartGuidesEnabled}
+        onToggleSmartGuides={handleToggleSmartGuides}
+        onAlignLine={alignLine}
+        onAlignAllLines={alignAllLines}
+        lineCount={nodes.find((n) => n.type === "lineRail" || n.id === "line-rail")?.data?.lines ?? 1}
         onShowProblem={() => setShowProblem(true)}
         isMobileFolded={isMobileToolbarFolded}
         onToggleMobileFold={() => setIsMobileToolbarFolded((prev) => !prev)}
@@ -1243,6 +1533,8 @@ function FlowCanvasInner({
         edges={edges}
         onNodesChange={onNodesChange}
         onEdgesChange={handleEdgesChange}
+        onNodeDrag={onNodeDrag}
+        onNodeDragStop={onNodeDragStop}
         onConnect={onConnect}
         onConnectStart={onConnectStart}
         onConnectEnd={onConnectEnd}
@@ -1267,6 +1559,7 @@ function FlowCanvasInner({
           size={1.5}
         />
         <Controls showInteractive={false} />
+        <SmartGuides guideLines={guideLines} />
       </ReactFlow>
 
       {/* Particle explosion effects on cancelled / broken connections */}

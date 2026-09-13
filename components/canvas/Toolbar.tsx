@@ -8,6 +8,8 @@ import {
   BookOpen,
   ChevronDown,
   ChevronUp,
+  Magnet,
+  AlignCenterHorizontal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +22,11 @@ type ToolbarProps = {
   onCenter: () => void
   onAddSticker: (emoji: string) => void
   onAddIndentBlock: () => void
+  smartGuidesEnabled?: boolean
+  onToggleSmartGuides?: () => void
+  onAlignLine?: (lineNum?: number) => void
+  onAlignAllLines?: () => void
+  lineCount?: number
   onExecute: () => void
   canExecute: boolean
   attempts: number
@@ -72,6 +79,11 @@ export default function Toolbar({
   onCenter,
   onAddSticker,
   onAddIndentBlock,
+  smartGuidesEnabled = true,
+  onToggleSmartGuides,
+  onAlignLine,
+  onAlignAllLines,
+  lineCount = 1,
   onExecute,
   canExecute,
   attempts,
@@ -80,17 +92,22 @@ export default function Toolbar({
   onToggleMobileFold,
 }: ToolbarProps) {
   const [stickerOpen, setStickerOpen] = useState(false)
+  const [alignMenuOpen, setAlignMenuOpen] = useState(false)
   const stickerRef = useRef<HTMLDivElement>(null)
+  const alignMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (stickerRef.current && !stickerRef.current.contains(e.target as Node)) {
         setStickerOpen(false)
       }
+      if (alignMenuRef.current && !alignMenuRef.current.contains(e.target as Node)) {
+        setAlignMenuOpen(false)
+      }
     }
-    if (stickerOpen) document.addEventListener('mousedown', handler)
+    if (stickerOpen || alignMenuOpen) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
-  }, [stickerOpen])
+  }, [stickerOpen, alignMenuOpen])
 
   const handleSticker = (emoji: string) => {
     onAddSticker(emoji)
@@ -150,6 +167,102 @@ export default function Toolbar({
         <IconBtn onClick={onAddIndentBlock} title="Agregar bloque de indentación">
           <LayoutTemplate size={17} />
         </IconBtn>
+
+        {/* Smart Guides Toggle */}
+        {onToggleSmartGuides && (
+          <IconBtn
+            onClick={onToggleSmartGuides}
+            title={
+              smartGuidesEnabled
+                ? "Guías inteligentes activadas (centrado automático). Haz clic para desactivar"
+                : "Activar guías inteligentes (alinear al centro de los contenedores)"
+            }
+            className={cn(
+              smartGuidesEnabled
+                ? "bg-sky-100 text-sky-700 hover:bg-sky-200 hover:text-sky-800 ring-1 ring-sky-300"
+                : "text-zinc-400 hover:text-zinc-700"
+            )}
+          >
+            <Magnet size={17} />
+          </IconBtn>
+        )}
+
+        {/* Align Row Button & Dropdown */}
+        {(onAlignLine || onAlignAllLines) && (
+          <div className="relative" ref={alignMenuRef}>
+            <IconBtn
+              onClick={() => setAlignMenuOpen((o) => !o)}
+              title="Alinear fila de código horizontalmente"
+              className={cn(alignMenuOpen && "bg-zinc-100 text-zinc-900")}
+            >
+              <AlignCenterHorizontal size={17} />
+            </IconBtn>
+
+            {alignMenuOpen && (
+              <div
+                className={cn(
+                  "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-150",
+                  "bottom-18 left-1/2 -translate-x-1/2",
+                  "sm:bottom-auto sm:top-16 sm:left-1/2 sm:-translate-x-1/2"
+                )}
+              >
+                <span className="text-[10px] font-bold text-zinc-400 px-2.5 py-1 uppercase tracking-wider font-mono">
+                  Alinear fila horizontal
+                </span>
+                {lineCount > 1 ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onAlignAllLines?.()
+                        setAlignMenuOpen(false)
+                      }}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-zinc-800 hover:bg-zinc-100 hover:text-zinc-900 transition text-left cursor-pointer"
+                    >
+                      <AlignCenterHorizontal className="w-3.5 h-3.5 text-zinc-600" />
+                      <span>Todas las filas ({lineCount})</span>
+                    </button>
+                    <div className="h-px bg-zinc-100 my-0.5" />
+                    {Array.from({ length: lineCount }).map((_, i) => {
+                      const lineNum = i + 1
+                      return (
+                        <button
+                          key={lineNum}
+                          type="button"
+                          onClick={() => {
+                            onAlignLine?.(lineNum)
+                            setAlignMenuOpen(false)
+                          }}
+                          className="flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-700 hover:bg-zinc-100 hover:text-zinc-900 transition text-left cursor-pointer"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-4 h-4 rounded bg-zinc-900 text-white font-mono text-[10px] flex items-center justify-center font-bold">
+                              {lineNum}
+                            </span>
+                            <span>Fila {lineNum}</span>
+                          </span>
+                          <span className="text-[10px] text-zinc-400 font-mono">alinear</span>
+                        </button>
+                      )
+                    })}
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAlignLine?.(1)
+                      setAlignMenuOpen(false)
+                    }}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-zinc-800 hover:bg-zinc-100 hover:text-zinc-900 transition text-left cursor-pointer"
+                  >
+                    <AlignCenterHorizontal className="w-3.5 h-3.5 text-zinc-600" />
+                    <span>Alinear elementos de fila 1</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <Divider />
 

@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import DeleteSessionTrigger from '@/components/professor/DeleteSessionTrigger'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -297,31 +298,44 @@ export default function CreateSessionModal({
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 cursor-pointer"
-          >
-            Cancelar
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            className={cn(
-              'flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition shadow-sm cursor-pointer',
-              saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
+        <div className="flex items-center justify-between gap-3 pt-2">
+          <div>
+            {isEditing && sessionToEdit && (
+              <DeleteSessionTrigger
+                sessionId={sessionToEdit.id}
+                sessionName={sessionToEdit.nombre}
+                activitiesCount={sessionToEdit.activitiesCount}
+                variant="button"
+                onSuccess={onClose}
+              />
             )}
-          >
-            {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving
-              ? isEditing
-                ? 'Guardando…'
-                : 'Creando…'
-              : isEditing
-              ? 'Guardar cambios'
-              : 'Crear sesión'}
-          </button>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 cursor-pointer"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className={cn(
+                'flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition shadow-sm cursor-pointer',
+                saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
+              )}
+            >
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              {saving
+                ? isEditing
+                  ? 'Guardando…'
+                  : 'Creando…'
+                : isEditing
+                ? 'Guardar cambios'
+                : 'Crear sesión'}
+            </button>
+          </div>
         </div>
       </form>
     </dialog>

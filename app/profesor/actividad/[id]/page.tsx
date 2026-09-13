@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import ActivityBuilder from '@/components/professor/ActivityBuilder'
+import DeleteActivityTrigger from '@/components/professor/DeleteActivityTrigger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,14 +108,22 @@ export default async function ProfesorActividadPage({
             <h1 className="text-xl font-bold text-zinc-900">
               {activityData.titulo}
             </h1>
-            <Link
-              href={`/actividad/${id}`}
-              target="_blank"
-              className="inline-flex items-center gap-1.5 self-start sm:self-auto rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 transition"
-              title="Abrir en el lienzo como lo verá el estudiante"
-            >
-              Probar en el lienzo ↗
-            </Link>
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href={`/actividad/${id}`}
+                target="_blank"
+                className="inline-flex items-center gap-1.5 rounded-xl border border-zinc-300 bg-zinc-100 px-3.5 py-1.5 text-xs font-semibold text-zinc-800 hover:bg-zinc-200 transition"
+                title="Abrir en el lienzo como lo verá el estudiante"
+              >
+                Probar en el lienzo ↗
+              </Link>
+              <DeleteActivityTrigger
+                activityId={id}
+                activityTitle={activityData.titulo}
+                redirectTo={`/profesor/curso/${course.id}`}
+                variant="header"
+              />
+            </div>
           </div>
         </div>
       </header>
