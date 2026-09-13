@@ -18,12 +18,12 @@ export default function ProblemModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs animate-modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="max-w-lg w-full mx-3 sm:mx-4 bg-white rounded-2xl shadow-xl overflow-hidden max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="max-w-lg w-full mx-3 sm:mx-4 bg-white rounded-2xl shadow-2xl border border-zinc-200 overflow-hidden max-h-[85vh] flex flex-col animate-modal-zoom">
         {/* Header */}
         <div className="flex items-center justify-between px-5 sm:px-6 py-3.5 sm:py-4 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-2 text-gray-800">

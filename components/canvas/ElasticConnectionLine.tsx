@@ -53,11 +53,15 @@ export default function ElasticConnectionLine({
 
   // Elastic tension sag: longer cables sag more, but high-tension straightens slightly
   const sagBase = Math.min(45, Math.max(12, dist * 0.12))
-  const midX = (fromX + toX) / 2
-  const midY = (fromY + toY) / 2 + sagBase + oscillation
+  const totalSag = sagBase + oscillation
 
-  // Quadratic/Cubic bezier elastic path
-  const path = `M ${fromX} ${fromY} Q ${midX} ${midY} ${toX} ${toY}`
+  // Cubic bezier with horizontal departure from handle arista
+  const curvature = Math.max(25, Math.min(100, Math.abs(dx) * 0.45))
+  const c1x = fromX + curvature
+  const c1y = fromY + totalSag * 0.6
+  const c2x = toX - curvature * 0.5
+  const c2y = toY + totalSag * 0.6
+  const path = `M ${fromX} ${fromY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${toX} ${toY}`
 
   return (
     <g className="pointer-events-none">

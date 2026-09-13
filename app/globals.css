@@ -75,16 +75,16 @@ body {
   }
 }
 
-/* Block impact bump when a connection snaps into place */
-@keyframes blockBump {
+/* Block impact bump when a connection snaps into place - immediate & punchy */
+@keyframes blockBumpImmediate {
   0% {
     transform: scale(1) translateY(0);
   }
-  30% {
-    transform: scale(1.06) translateY(-4px);
+  25% {
+    transform: scale(1.08) translateY(-4px);
   }
-  65% {
-    transform: scale(0.97) translateY(2px);
+  60% {
+    transform: scale(0.96) translateY(2px);
   }
   100% {
     transform: scale(1) translateY(0);
@@ -95,15 +95,37 @@ body {
 @keyframes modalZoomIn {
   0% {
     opacity: 0;
-    transform: scale(0.88);
+    transform: scale(0.9) translateY(8px);
   }
   65% {
     opacity: 1;
-    transform: scale(1.03);
+    transform: scale(1.02) translateY(-1px);
   }
   100% {
     opacity: 1;
-    transform: scale(1);
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Modal backdrop fade-in */
+@keyframes modalBackdropFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* Dropdown pop & slide down */
+@keyframes dropdownFadeIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -178,11 +200,19 @@ body {
 }
 
 .animate-block-bump {
-  animation: blockBump 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: blockBumpImmediate 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) forwards !important;
 }
 
 .animate-modal-zoom {
-  animation: modalZoomIn 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+  animation: modalZoomIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+.animate-modal-backdrop {
+  animation: modalBackdropFadeIn 0.2s ease-out forwards;
+}
+
+.animate-dropdown-in {
+  animation: dropdownFadeIn 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .animate-form-slide-top {
@@ -204,31 +234,43 @@ body {
 
 /* ─── React Flow custom handle styles ─────────────────────────────────────── */
 .react-flow__handle {
-  width: 13px !important;
-  height: 13px !important;
+  width: 14px !important;
+  height: 14px !important;
   background: #71717a !important;
-  border: 2px solid #ffffff !important;
+  border: 2.5px solid #ffffff !important;
   border-radius: 9999px !important;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25) !important;
   transition: transform 0.15s ease, background-color 0.15s ease !important;
   cursor: crosshair !important;
-  z-index: 20 !important;
+  z-index: 25 !important;
 }
 
 .react-flow__handle:hover {
   background: #18181b !important;
-  transform: translateY(-50%) scale(1.2) !important;
+  transform: translateY(-50%) scale(1.25) !important;
 }
 
-/* Position handles strictly outside the container boundaries on desktop */
+/* Position handles strictly on the container aristas/borders */
 .react-flow__handle-left {
-  left: -8px !important;
+  left: -7px !important;
   transform: translateY(-50%) !important;
 }
 
 .react-flow__handle-right {
-  right: -8px !important;
+  right: -7px !important;
   transform: translateY(-50%) !important;
+}
+
+/* Expanded invisible hit area for easy grabbing on edges */
+.react-flow__handle::after {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  right: -8px;
+  bottom: -8px;
+  border-radius: 9999px;
+  cursor: crosshair;
 }
 
 /* LineRailNode line handles (high contrast dark) */

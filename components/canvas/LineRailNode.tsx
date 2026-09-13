@@ -22,6 +22,12 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
 
   useEffect(() => {
     updateNodeInternals(id)
+    const t1 = setTimeout(() => updateNodeInternals(id), 60)
+    const t2 = setTimeout(() => updateNodeInternals(id), 600)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [id, lines, updateNodeInternals])
 
   const addLine = () => {
@@ -43,6 +49,7 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
 
   return (
     <div
+      onAnimationEnd={() => updateNodeInternals(id)}
       className={cn(
         'relative rounded-2xl border border-zinc-300 bg-white/95 shadow-md backdrop-blur-xs select-none w-[130px] transition-all',
         (data as any)?.isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in'

@@ -10,6 +10,7 @@ import ReactFlow, {
   addEdge,
   updateEdge,
   useReactFlow,
+  useUpdateNodeInternals,
   ReactFlowProvider,
   BaseEdge,
   getBezierPath,
@@ -113,33 +114,97 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
     sourceY,
     targetX,
     targetY,
-    sourcePosition,
-    targetPosition,
     style = {},
     markerEnd,
     data,
     selected,
   } = props
 
-  const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX,
-    sourceY,
-    sourcePosition,
-    targetX,
-    targetY,
-    targetPosition,
-  })
+  // Track movement of endpoints to simulate rubber elasticity & damped oscillation
+  const [oscillation, setOscillation] = useState(0)
+  const lastPos = useRef({ sourceX, sourceY, targetX, targetY, time: Date.now() })
+  const animFrame = useRef<number | null>(null)
+
+  useEffect(() => {
+    const now = Date.now()
+    const dxS = sourceX - lastPos.current.sourceX
+    const dyS = sourceY - lastPos.current.sourceY
+    const dxT = targetX - lastPos.current.targetX
+    const dyT = targetY - lastPos.current.targetY
+    const speed = Math.sqrt(dxS * dxS + dyS * dyS + dxT * dxT + dyT * dyT)
+    lastPos.current = { sourceX, sourceY, targetX, targetY, time: now }
+
+    // If movement is noticeable, initiate damped elastic oscillation
+    if (speed > 1.2) {
+      const startTime = performance.now()
+      const initialAmp = Math.min(24, Math.max(6, speed * 0.4))
+
+      const animate = (time: number) => {
+        const elapsed = (time - startTime) / 1000 // in seconds
+        if (elapsed > 0.6) {
+          setOscillation(0)
+          return
+        }
+        // Damped sine wave harmonic motion: y = A * e^(-lambda * t) * sin(omega * t)
+        const decay = Math.exp(-elapsed * 6)
+        const osc = initialAmp * decay * Math.sin(elapsed * 24)
+        setOscillation(osc)
+        animFrame.current = requestAnimationFrame(animate)
+      }
+
+      if (animFrame.current) cancelAnimationFrame(animFrame.current)
+      animFrame.current = requestAnimationFrame(animate)
+    }
+
+    return () => {
+      if (animFrame.current) cancelAnimationFrame(animFrame.current)
+    }
+  }, [sourceX, sourceY, targetX, targetY])
+
+  // Calculate rubber stretch distance and tension
+  const dx = targetX - sourceX
+  const dy = targetY - sourceY
+  const dist = Math.sqrt(dx * dx + dy * dy)
+
+  // Elastic tension sag: rubber cords sag slightly when closer, straighten under tension
+  const sagBase = Math.min(42, Math.max(10, dist * 0.11))
+  const totalSag = sagBase + oscillation
+
+  // Cubic bezier with horizontal exit and entry at node aristas
+  const curvature = Math.max(28, Math.min(110, Math.abs(dx) * 0.48))
+  const c1x = sourceX + curvature
+  const c1y = sourceY + totalSag * 0.65
+  const c2x = targetX - curvature
+  const c2y = targetY + totalSag * 0.65
+
+  const edgePath = `M ${sourceX} ${sourceY} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${targetX} ${targetY}`
+
+  // Center point on cubic bezier for label / disconnect button
+  const labelX = (sourceX + 3 * c1x + 3 * c2x + targetX) / 8
+  const labelY = (sourceY + 3 * c1y + 3 * c2y + targetY) / 8
 
   const isAnimating: boolean = data?.animating ?? false
   const isSuccess: boolean = data?.success ?? false
   const isError: boolean = data?.error ?? false
 
   const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : selected ? "#000000" : "#18181b"
-  const strokeWidth = selected ? 2.5 : 2
+  const strokeWidth = selected ? 2.75 : 2.25
 
   return (
     <>
       {isAnimating && <style>{springKeyframes}</style>}
+
+      {/* Subtle rubber shadow/glow */}
+      <path
+        d={edgePath}
+        fill="none"
+        stroke={isSuccess ? "#86efac" : isError ? "#fca5a5" : "#71717a"}
+        strokeWidth={strokeWidth + 2.5}
+        strokeOpacity={selected ? 0.35 : 0.18}
+        strokeLinecap="round"
+        className="pointer-events-none transition-all duration-150"
+      />
+
       <BaseEdge
         path={edgePath}
         markerEnd={markerEnd}
@@ -147,9 +212,11 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
           ...style,
           stroke,
           strokeWidth,
+          strokeLinecap: "round",
           animation: isAnimating
             ? "springBack 0.8s ease-in-out forwards"
             : undefined,
+          transition: "stroke 0.15s ease",
         }}
       />
       {!isSuccess && (
@@ -169,7 +236,7 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
                 data?.onDelete?.(id, { x: e.clientX, y: e.clientY })
               }}
               title="Desconectar enlace"
-              className="flex h-5 w-5 items-center justify-center rounded-full bg-white border border-zinc-300 shadow-xs text-zinc-400 hover:text-white hover:bg-red-500 hover:border-red-600 transition-all cursor-pointer select-none"
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-white border border-zinc-300 shadow-sm text-zinc-400 hover:text-white hover:bg-red-500 hover:border-red-600 hover:scale-110 active:scale-95 transition-all cursor-pointer select-none"
             >
               <span className="text-xs font-bold leading-none select-none">
                 ×
@@ -315,8 +382,23 @@ function FlowCanvasInner({
 }: FlowCanvasProps) {
   const router = useRouter()
   const { fitView } = useReactFlow()
+  const updateNodeInternals = useUpdateNodeInternals()
   const [nodes, setNodes, onNodesChange] = useNodesState(blocksToNodes(blocks))
   const [edges, setEdges, onEdgesChange] = useEdgesState<EdgeData>([])
+
+  // Ensure all node handles are measured accurately at resting bounds after mount & animations
+  useEffect(() => {
+    const t1 = setTimeout(() => {
+      nodes.forEach((n) => updateNodeInternals(n.id))
+    }, 100)
+    const t2 = setTimeout(() => {
+      nodes.forEach((n) => updateNodeInternals(n.id))
+    }, 650)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [nodes.length, updateNodeInternals])
 
   const [attempts, setAttempts] = useState(0)
   const [showTerminal, setShowTerminal] = useState(false)
@@ -631,7 +713,8 @@ function FlowCanvasInner({
   // ── Connection lifecycle (elastic stretch, snap back, particles, block impact) ──
   const onConnectStart = useCallback(() => {
     isConnectingRef.current = true
-  }, [])
+    nodes.forEach((n) => updateNodeInternals(n.id))
+  }, [nodes, updateNodeInternals])
 
   const onConnectEnd = useCallback((event: MouseEvent | TouchEvent) => {
     if (isConnectingRef.current) {
@@ -673,11 +756,11 @@ function FlowCanvasInner({
 
       setEdges((eds) => addEdge(newEdge, eds))
 
-      // Mark source and target nodes as connected, AND trigger block bump reaction on target!
+      // Mark source and target nodes as connected, AND trigger immediate block bump reaction!
       setNodes((nds) =>
         nds.map((n) => {
           if (n.type === "lineRail" || n.type === "sticker") return n
-          if (n.id === connection.target) {
+          if (n.id === connection.target || n.id === connection.source) {
             return {
               ...n,
               data: {
@@ -686,9 +769,6 @@ function FlowCanvasInner({
                 bump: Date.now(),
               },
             }
-          }
-          if (n.id === connection.source) {
-            return { ...n, data: { ...n.data, state: "connected" } }
           }
           return n
         })
@@ -979,7 +1059,7 @@ function FlowCanvasInner({
             {selectorOpen && (
               <div
                 className={cn(
-                  "bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border border-zinc-200 py-2.5 z-[70] overflow-hidden text-xs sm:text-sm animate-in fade-in zoom-in-95 duration-150",
+                  "bg-white/98 backdrop-blur-md rounded-2xl shadow-2xl border border-zinc-200 py-2.5 z-[70] overflow-hidden text-xs sm:text-sm animate-dropdown-in",
                   // Mobile and tablet: generous floating overlay positioned below top bar
                   "fixed top-14 left-2.5 right-2.5 max-w-sm sm:max-w-md md:max-w-sm",
                   // Desktop: attached directly below trigger button
@@ -1005,10 +1085,17 @@ function FlowCanvasInner({
                       <div
                         key={act.id}
                         className={cn(
-                          "group flex items-center justify-between px-3.5 py-2.5 sm:py-2 hover:bg-zinc-50 transition-colors",
-                          isCurrent && "bg-zinc-100/90 font-semibold text-zinc-950"
+                          "group relative flex items-center justify-between px-3.5 py-2.5 sm:py-2 transition-all duration-200",
+                          isCurrent
+                            ? "bg-zinc-100/95 font-semibold text-zinc-950 shadow-xs"
+                            : "hover:bg-zinc-50"
                         )}
                       >
+                        {/* Active indicator bar */}
+                        {isCurrent && (
+                          <span className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-zinc-900 rounded-r-full animate-pulse" />
+                        )}
+
                         <button
                           type="button"
                           onClick={(e) => handleSwitchActivity(act.id, e)}
@@ -1016,15 +1103,20 @@ function FlowCanvasInner({
                         >
                           <span
                             className={cn(
-                              "w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 font-medium",
+                              "w-6 h-6 rounded-full flex items-center justify-center text-xs shrink-0 font-medium transition-transform duration-200",
                               isCurrent
-                                ? "bg-zinc-900 text-white"
+                                ? "bg-zinc-900 text-white shadow-xs scale-105 ring-2 ring-zinc-300 ring-offset-1"
                                 : "bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200"
                             )}
                           >
                             {act.orden !== undefined ? act.orden + 1 : idx + 1}
                           </span>
                           <span className="truncate">{title}</span>
+                          {isCurrent && (
+                            <span className="text-[10px] uppercase font-mono tracking-wider font-semibold text-zinc-600 bg-zinc-200/80 px-1.5 py-0.5 rounded ml-1 animate-pulse">
+                              Activa
+                            </span>
+                          )}
                         </button>
 
                         {/* Completion toggle button */}

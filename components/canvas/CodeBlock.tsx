@@ -1,6 +1,6 @@
 'use client'
-import { memo } from 'react'
-import { Handle, Position, NodeProps } from 'reactflow'
+import { memo, useEffect, useRef, useState } from 'react'
+import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { cn } from '@/lib/utils'
 
 export type CodeBlockData = {
@@ -19,22 +19,58 @@ const borderByState: Record<CodeBlockData['state'], string> = {
   error: 'border-red-500',
 }
 
-const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
+const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
   const { code, state, bump, isExiting, entranceDelay = 0 } = data
+  const updateNodeInternals = useUpdateNodeInternals()
+  const [isBumping, setIsBumping] = useState(false)
+  const prevBumpRef = useRef(bump)
+
+  // Immediate block bump without delay
+  useEffect(() => {
+    if (bump && bump !== prevBumpRef.current) {
+      prevBumpRef.current = bump
+      setIsBumping(false)
+      const r = requestAnimationFrame(() => {
+        setIsBumping(true)
+      })
+      const t = setTimeout(() => {
+        setIsBumping(false)
+      }, 300)
+      return () => {
+        cancelAnimationFrame(r)
+        clearTimeout(t)
+      }
+    }
+  }, [bump])
+
+  // Keep handle bounds accurately synchronized with ReactFlow
+  useEffect(() => {
+    updateNodeInternals(id)
+    const t1 = setTimeout(() => updateNodeInternals(id), 60)
+    const t2 = setTimeout(() => updateNodeInternals(id), 600)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
+  }, [id, code, updateNodeInternals])
+
+  const handleAnimationEnd = () => {
+    updateNodeInternals(id)
+  }
 
   return (
     <div
-      key={bump} // Re-triggers bump animation on change
+      onAnimationEnd={handleAnimationEnd}
       style={{
-        animationDelay: `${entranceDelay}s`,
+        animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}
       className={cn(
-        'relative rounded-lg border shadow-sm bg-white min-w-[56px] max-w-[400px] transition-all duration-200 select-none cursor-grab active:cursor-grabbing',
+        'relative rounded-lg border shadow-sm bg-white min-w-[56px] w-fit max-w-none transition-all duration-200 select-none cursor-grab active:cursor-grabbing',
         borderByState[state],
         // Cartoon entrance / exit animations
         isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
-        // Block bump on connection impact
-        bump && 'animate-block-bump',
+        // Immediate block bump on connection impact
+        isBumping && 'animate-block-bump',
         // User selection smooth zoom growth
         selected
           ? 'scale-108 shadow-2xl ring-2 ring-zinc-900 ring-offset-2 z-30'
@@ -49,7 +85,7 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         />
       )}
 
-      {/* Left (target) handle */}
+      {/* Left (target) handle on the left arista */}
       <Handle
         type="target"
         position={Position.Left}
@@ -59,14 +95,14 @@ const CodeBlock = memo(({ data, selected }: NodeProps<CodeBlockData>) => {
         }}
       />
 
-      {/* Content */}
-      <div className="px-3.5 py-2.5 sm:px-3 sm:py-2 flex items-center justify-center">
+      {/* Content - ample horizontal padding (px-5) to never overlap arista handles */}
+      <div className="px-5 py-2.5 sm:px-4 sm:py-2 flex items-center justify-center">
         <pre className="text-sm font-mono text-zinc-900 whitespace-pre">
           <code>{code}</code>
         </pre>
       </div>
 
-      {/* Right (source) handle */}
+      {/* Right (source) handle on the right arista */}
       <Handle
         type="source"
         position={Position.Right}

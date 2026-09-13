@@ -1,5 +1,5 @@
 'use client'
-import { memo, useState, useEffect } from 'react'
+import { memo, useState, useEffect, useRef } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { LayoutTemplate, Plus, Minus } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -22,11 +22,37 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
   const [rows, setRows] = useState<number>(data?.rows ?? 1)
   const updateNodeInternals = useUpdateNodeInternals()
   const { bump, isExiting, entranceDelay = 0 } = data || {}
+  const [isBumping, setIsBumping] = useState(false)
+  const prevBumpRef = useRef(bump)
 
   const totalHeight = rows * ROW_HEIGHT
 
+  // Immediate block bump without delay
+  useEffect(() => {
+    if (bump && bump !== prevBumpRef.current) {
+      prevBumpRef.current = bump
+      setIsBumping(false)
+      const r = requestAnimationFrame(() => {
+        setIsBumping(true)
+      })
+      const t = setTimeout(() => {
+        setIsBumping(false)
+      }, 300)
+      return () => {
+        cancelAnimationFrame(r)
+        clearTimeout(t)
+      }
+    }
+  }, [bump])
+
   useEffect(() => {
     updateNodeInternals(id)
+    const t1 = setTimeout(() => updateNodeInternals(id), 60)
+    const t2 = setTimeout(() => updateNodeInternals(id), 600)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+    }
   }, [id, rows, updateNodeInternals])
 
   const addRow = () => {
@@ -46,15 +72,15 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
 
   return (
     <div
-      key={bump}
+      onAnimationEnd={() => updateNodeInternals(id)}
       style={{
         height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT,
-        animationDelay: `${entranceDelay}s`,
+        animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}
       className={cn(
         'relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all cursor-grab active:cursor-grabbing',
         isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in',
-        bump && 'animate-block-bump',
+        isBumping && 'animate-block-bump',
         selected
           ? 'scale-106 shadow-2xl ring-2 ring-zinc-900 ring-offset-2 z-30'
           : 'hover:scale-[1.01]'

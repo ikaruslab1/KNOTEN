@@ -74,12 +74,12 @@ export default function TerminalModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs animate-modal-backdrop"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="max-w-2xl w-full mx-3 sm:mx-4 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden shadow-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+      <div className="max-w-2xl w-full mx-3 sm:mx-4 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden shadow-2xl max-h-[85vh] flex flex-col animate-modal-zoom">
         {/* Terminal header */}
         <div className="flex items-center justify-between px-3.5 sm:px-4 py-2.5 sm:py-3 bg-gray-800 border-b border-gray-700 shrink-0">
           <div className="flex items-center gap-1.5 sm:gap-2">
