@@ -8,13 +8,18 @@ type Props = {
   cursoId: string
   /** Pre-select the tipo in the modal */
   tipo?: 'clase' | 'repaso'
+  totalSessionsOfType?: number
 }
 
 /**
  * Thin client island rendered inside the (server) course page.
  * Owns the modal open/close state.
  */
-export default function SessionCreateTrigger({ cursoId, tipo }: Props) {
+export default function SessionCreateTrigger({
+  cursoId,
+  tipo = 'clase',
+  totalSessionsOfType = 0,
+}: Props) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -34,7 +39,8 @@ export default function SessionCreateTrigger({ cursoId, tipo }: Props) {
         isOpen={open}
         onClose={() => setOpen(false)}
         cursoId={cursoId}
-        tipo={tipo || 'clase'}
+        tipo={tipo}
+        totalSessionsOfType={totalSessionsOfType}
       />
     </>
   )

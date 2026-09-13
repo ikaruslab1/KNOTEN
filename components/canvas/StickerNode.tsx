@@ -5,7 +5,13 @@ import { Minus, Plus, Trash2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type StickerNodeData = {
-  emoji: string
+  variant?: 'emoji' | 'badge'
+  emoji?: string
+  text?: string
+  bgClass?: string
+  borderClass?: string
+  textClass?: string
+  colorName?: string
   scale?: number
   onDelete?: (id: string) => void
   readOnly?: boolean
@@ -34,6 +40,7 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
   }
 
   const showControls = (selected || isHovered) && !data?.readOnly
+  const isBadge = Boolean(data?.text)
   const baseSize = 64
   const currentSize = Math.round(baseSize * scale)
 
@@ -46,8 +53,7 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
         (data as any)?.isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in'
       )}
       style={{
-        width: currentSize,
-        height: currentSize,
+        ...(isBadge ? {} : { width: currentSize, height: currentSize }),
         animationDelay: `${(data as any)?.entranceDelay ?? 0}s`,
       }}
     >
@@ -103,15 +109,37 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
         </button>
       )}
 
-      {/* Emoji Content */}
-      <span
-        className="leading-none transition-all duration-100"
-        style={{
-          fontSize: `${Math.round(38 * scale)}px`,
-        }}
-      >
-        {data.emoji}
-      </span>
+      {/* Sticker Content */}
+      {isBadge ? (
+        <div
+          className={cn(
+            'inline-flex items-center justify-center font-semibold text-center select-none shadow-xs transition-all duration-100 whitespace-nowrap',
+            data.bgClass || 'bg-zinc-100',
+            data.borderClass || 'border-2 border-zinc-500',
+            data.textClass || 'text-zinc-800'
+          )}
+          style={{
+            fontSize: `${Math.round(13.5 * scale)}px`,
+            paddingTop: `${Math.round(6 * scale)}px`,
+            paddingBottom: `${Math.round(6 * scale)}px`,
+            paddingLeft: `${Math.round(14 * scale)}px`,
+            paddingRight: `${Math.round(14 * scale)}px`,
+            borderRadius: `${Math.round(10 * scale)}px`,
+            borderWidth: `${Math.max(2, Math.round(2 * scale))}px`,
+          }}
+        >
+          <span>{data.text}</span>
+        </div>
+      ) : (
+        <span
+          className="leading-none transition-all duration-100"
+          style={{
+            fontSize: `${Math.round(38 * scale)}px`,
+          }}
+        >
+          {data.emoji}
+        </span>
+      )}
     </div>
   )
 })

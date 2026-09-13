@@ -16,6 +16,7 @@ export type SessionToEdit = {
   nombre: string
   tipo: SessionType
   fecha_liberacion: string | null
+  orden?: number
   activitiesCount: number
 }
 
@@ -25,6 +26,7 @@ type Props = {
   cursoId: string
   tipo: SessionType
   sessionToEdit?: SessionToEdit | null
+  totalSessionsOfType?: number
 }
 
 function formatIsoForDateTimeInput(iso?: string | null): string {
@@ -51,6 +53,7 @@ export default function CreateSessionModal({
   cursoId,
   tipo,
   sessionToEdit,
+  totalSessionsOfType = 0,
 }: Props) {
   const router = useRouter()
   const supabase = createClient()
@@ -59,6 +62,7 @@ export default function CreateSessionModal({
   const isEditing = !!sessionToEdit
 
   const [nombre, setNombre] = useState('')
+  const [orden, setOrden] = useState<number>(1)
   const [numActividades, setNumActividades] = useState(3)
   const [fechaLiberacion, setFechaLiberacion] = useState('')
   const [saving, setSaving] = useState(false)
@@ -69,16 +73,18 @@ export default function CreateSessionModal({
     if (isOpen) {
       if (sessionToEdit) {
         setNombre(sessionToEdit.nombre)
+        setOrden(sessionToEdit.orden && sessionToEdit.orden > 0 ? sessionToEdit.orden : 1)
         setNumActividades(Math.max(1, sessionToEdit.activitiesCount))
         setFechaLiberacion(formatIsoForDateTimeInput(sessionToEdit.fecha_liberacion))
       } else {
         setNombre('')
+        setOrden(Math.max(1, totalSessionsOfType + 1))
         setNumActividades(3)
         setFechaLiberacion('')
       }
       setError(null)
     }
-  }, [isOpen, sessionToEdit])
+  }, [isOpen, sessionToEdit, totalSessionsOfType])
 
   // Open/close native <dialog>
   useEffect(() => {
@@ -121,20 +127,60 @@ export default function CreateSessionModal({
     setSaving(true)
 
     try {
+      const targetOrden = Math.max(1, Math.floor(Number(orden) || 1))
+
       if (isEditing && sessionToEdit) {
         // ── EDIT EXISTING SESSION ─────────────────────────────────────────────
         const sessionId = sessionToEdit.id
 
-        // 1. Update session info
-        const { error: updateSessionErr } = await supabase
+        // Fetch current sibling sessions to adjust order cleanly
+        const { data: siblings, error: siblingsErr } = await supabase
           .from('sessions')
-          .update({
-            nombre: nombre.trim(),
-            fecha_liberacion: tipo === 'clase' ? (fechaLiberacion ? new Date(fechaLiberacion).toISOString() : null) : null,
-          })
-          .eq('id', sessionId)
+          .select('id, orden')
+          .eq('curso_id', cursoId)
+          .eq('tipo', tipo)
+          .order('orden', { ascending: true })
 
-        if (updateSessionErr) throw updateSessionErr
+        if (siblingsErr) throw siblingsErr
+
+        const currentSiblings = siblings ?? []
+        // Filter out this session
+        const remaining = currentSiblings.filter((s) => s.id !== sessionId)
+        // Clamp index
+        const insertIndex = Math.min(Math.max(0, targetOrden - 1), remaining.length)
+        remaining.splice(insertIndex, 0, { id: sessionId, orden: targetOrden })
+
+        // 1. Update all re-indexed sessions
+        const updateOrderPromises = remaining.map((s, idx) => {
+          const newIdx = idx + 1
+          if (s.id === sessionId) {
+            return supabase
+              .from('sessions')
+              .update({
+                nombre: nombre.trim(),
+                fecha_liberacion:
+                  tipo === 'clase'
+                    ? fechaLiberacion
+                      ? new Date(fechaLiberacion).toISOString()
+                      : null
+                    : null,
+                orden: newIdx,
+              })
+              .eq('id', sessionId)
+          } else if (s.orden !== newIdx) {
+            return supabase
+              .from('sessions')
+              .update({ orden: newIdx })
+              .eq('id', s.id)
+          }
+          return Promise.resolve({ error: null })
+        })
+
+        const orderResults = await Promise.all(updateOrderPromises)
+        const orderFailed = orderResults.some((r) => r.error)
+        if (orderFailed) {
+          throw new Error('Error al actualizar el orden de las sesiones.')
+        }
 
         // 2. Adjust activities count
         const currentCount = sessionToEdit.activitiesCount
@@ -163,20 +209,54 @@ export default function CreateSessionModal({
         }
       } else {
         // ── CREATE NEW SESSION ────────────────────────────────────────────────
+        // Fetch current sibling sessions to shift order if necessary
+        const { data: siblings, error: siblingsErr } = await supabase
+          .from('sessions')
+          .select('id, orden')
+          .eq('curso_id', cursoId)
+          .eq('tipo', tipo)
+          .order('orden', { ascending: true })
+
+        if (siblingsErr) throw siblingsErr
+
+        const currentSiblings = siblings ?? []
+        const insertIndex = Math.min(Math.max(0, targetOrden - 1), currentSiblings.length)
+        const effectiveOrden = insertIndex + 1
+
         const { data: newSession, error: sessionError } = await supabase
           .from('sessions')
           .insert({
             curso_id: cursoId,
             nombre: nombre.trim(),
             tipo,
-            fecha_liberacion: tipo === 'clase' ? (fechaLiberacion ? new Date(fechaLiberacion).toISOString() : null) : null,
+            orden: effectiveOrden,
+            fecha_liberacion:
+              tipo === 'clase'
+                ? fechaLiberacion
+                  ? new Date(fechaLiberacion).toISOString()
+                  : null
+                : null,
           })
           .select('id')
           .single()
 
-        if (sessionError || !newSession) throw sessionError ?? new Error('Error creando sesión.')
+        if (sessionError || !newSession) {
+          throw sessionError ?? new Error('Error creando sesión.')
+        }
 
         const sessionId = newSession.id
+
+        // Re-index remaining sessions if inserted before the end
+        if (insertIndex < currentSiblings.length) {
+          const shiftPromises = currentSiblings.slice(insertIndex).map((s, idx) => {
+            const newIdx = effectiveOrden + 1 + idx
+            return supabase
+              .from('sessions')
+              .update({ orden: newIdx })
+              .eq('id', s.id)
+          })
+          await Promise.all(shiftPromises)
+        }
 
         // Create initial activities
         const activityRows = Array.from({ length: numActividades }, (_, i) => ({
@@ -203,6 +283,8 @@ export default function CreateSessionModal({
       setSaving(false)
     }
   }
+
+  const sectionName = tipo === 'clase' ? 'En clase' : 'Repaso'
 
   return (
     <dialog
@@ -243,9 +325,37 @@ export default function CreateSessionModal({
             required
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            placeholder={tipo === 'clase' ? 'Ej. Sesión 1 – Condicionales' : 'Ej. Repaso 1 – Variables'}
+            placeholder={
+              tipo === 'clase'
+                ? 'Ej. Sesión 1 – Condicionales'
+                : 'Ej. Repaso 1 – Variables'
+            }
             className="rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
+        </div>
+
+        {/* Orden / Posición */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="session-orden" className="text-sm font-medium text-zinc-700">
+            Posición / Orden en {sectionName} <span className="text-red-500">*</span>
+          </label>
+          <div className="flex items-center gap-3">
+            <input
+              id="session-orden"
+              type="number"
+              min={1}
+              max={100}
+              required
+              value={orden}
+              onChange={(e) => setOrden(Math.max(1, Number(e.target.value)))}
+              className="w-28 rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15 font-semibold text-center"
+            />
+            <span className="text-xs text-zinc-500">
+              {isEditing
+                ? `Posición actual: #${sessionToEdit?.orden ?? 1}. Al cambiarla, las demás sesiones se reajustan automáticamente.`
+                : `Posición #${orden} en la lista de ${sectionName} (1 = primera posición).`}
+            </span>
+          </div>
         </div>
 
         {/* Número de actividades */}
@@ -265,7 +375,11 @@ export default function CreateSessionModal({
           />
           <p className="text-xs text-zinc-500">
             {isEditing
-              ? `Actividades configuradas: ${numActividades} (se ${numActividades >= (sessionToEdit?.activitiesCount ?? 0) ? 'agregarán' : 'eliminarán'} actividades automáticamente si modificas este valor).`
+              ? `Actividades configuradas: ${numActividades} (se ${
+                  numActividades >= (sessionToEdit?.activitiesCount ?? 0)
+                    ? 'agregarán'
+                    : 'eliminarán'
+                } actividades automáticamente si modificas este valor).`
               : `Se crearán ${numActividades} actividades para esta sesión.`}
           </p>
         </div>
@@ -323,7 +437,7 @@ export default function CreateSessionModal({
               disabled={saving}
               className={cn(
                 'flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition shadow-sm cursor-pointer',
-                saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
+                saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800'
               )}
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}

@@ -1,10 +1,11 @@
 import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
-import { ChevronRight, BookOpen, Clock, Pencil, Plus } from 'lucide-react'
+import { ChevronRight, BookOpen, Clock, Pencil } from 'lucide-react'
 import { createClient, getCurrentUser } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import SessionCreateTrigger from '@/components/professor/SessionCreateTrigger'
 import SessionEditTrigger from '@/components/professor/SessionEditTrigger'
+import SessionOrderControls from '@/components/professor/SessionOrderControls'
 import DeleteCourseTrigger from '@/components/professor/DeleteCourseTrigger'
 import DeleteSessionTrigger from '@/components/professor/DeleteSessionTrigger'
 import DeleteActivityTrigger from '@/components/professor/DeleteActivityTrigger'
@@ -23,6 +24,7 @@ type Session = {
   tipo: 'clase' | 'repaso'
   fecha_liberacion: string | null
   orden: number
+  created_at?: string
   activities: Activity[]
 }
 
@@ -54,11 +56,12 @@ export default async function ProfesorCursoPage({
     supabase
       .from('sessions')
       .select(
-        `id, nombre, tipo, fecha_liberacion, orden,
+        `id, nombre, tipo, fecha_liberacion, orden, created_at,
          activities ( id, titulo, orden )`
       )
       .eq('curso_id', id)
-      .order('orden', { ascending: true }),
+      .order('orden', { ascending: true })
+      .order('created_at', { ascending: true }),
   ])
 
   if (!user) redirect('/')
@@ -70,8 +73,24 @@ export default async function ProfesorCursoPage({
     activities: (s.activities as Activity[]) ?? [],
   }))
 
-  const claseSessions = sessions.filter((s) => s.tipo === 'clase')
-  const repasoSessions = sessions.filter((s) => s.tipo === 'repaso')
+  const claseSessions = sessions
+    .filter((s) => s.tipo === 'clase')
+    .sort(
+      (a, b) =>
+        (a.orden ?? 0) - (b.orden ?? 0) ||
+        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    )
+
+  const repasoSessions = sessions
+    .filter((s) => s.tipo === 'repaso')
+    .sort(
+      (a, b) =>
+        (a.orden ?? 0) - (b.orden ?? 0) ||
+        new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+    )
+
+  const claseSimples = claseSessions.map((s) => ({ id: s.id, orden: s.orden }))
+  const repasoSimples = repasoSessions.map((s) => ({ id: s.id, orden: s.orden }))
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -110,41 +129,77 @@ export default async function ProfesorCursoPage({
       <main className="mx-auto max-w-5xl space-y-8 sm:space-y-10 px-4 sm:px-6 py-6 sm:py-8">
         {/* ── En clase ─────────────────────────────────────────────────────── */}
         <section>
-          <div className="mb-4 flex items-center gap-2">
-            <BookOpen className="h-5 w-5 text-zinc-800" />
-            <h2 className="text-lg font-semibold text-zinc-900">En clase</h2>
-            <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
-              {claseSessions.length}
-            </span>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-zinc-800" />
+              <h2 className="text-lg font-semibold text-zinc-900">En clase</h2>
+              <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
+                {claseSessions.length}
+              </span>
+            </div>
+            {claseSessions.length > 1 && (
+              <span className="text-xs text-zinc-400 hidden sm:inline">
+                Usa las flechas ▲ ▼ o edita la sesión para cambiar el orden
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-3">
-            {claseSessions.map((session) => (
-              <SessionRow key={session.id} session={session} cursoId={id} />
+            {claseSessions.map((session, idx) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                cursoId={id}
+                index={idx}
+                totalSessions={claseSessions.length}
+                allSessionsOfType={claseSimples}
+              />
             ))}
 
             {/* Create session card */}
-            <SessionCreateTrigger cursoId={id} tipo="clase" />
+            <SessionCreateTrigger
+              cursoId={id}
+              tipo="clase"
+              totalSessionsOfType={claseSessions.length}
+            />
           </div>
         </section>
 
         {/* ── Repaso ───────────────────────────────────────────────────────── */}
         <section>
-          <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-zinc-600" />
-            <h2 className="text-lg font-semibold text-zinc-900">Repaso</h2>
-            <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
-              {repasoSessions.length}
-            </span>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-zinc-600" />
+              <h2 className="text-lg font-semibold text-zinc-900">Repaso</h2>
+              <span className="rounded-full bg-zinc-200 px-2.5 py-0.5 text-xs font-medium text-zinc-800">
+                {repasoSessions.length}
+              </span>
+            </div>
+            {repasoSessions.length > 1 && (
+              <span className="text-xs text-zinc-400 hidden sm:inline">
+                Usa las flechas ▲ ▼ o edita la sesión para cambiar el orden
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-3">
-            {repasoSessions.map((session) => (
-              <SessionRow key={session.id} session={session} cursoId={id} />
+            {repasoSessions.map((session, idx) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                cursoId={id}
+                index={idx}
+                totalSessions={repasoSessions.length}
+                allSessionsOfType={repasoSimples}
+              />
             ))}
 
             {/* Create session card */}
-            <SessionCreateTrigger cursoId={id} tipo="repaso" />
+            <SessionCreateTrigger
+              cursoId={id}
+              tipo="repaso"
+              totalSessionsOfType={repasoSessions.length}
+            />
           </div>
         </section>
       </main>
@@ -154,21 +209,52 @@ export default async function ProfesorCursoPage({
 
 // ─── Session Row ──────────────────────────────────────────────────────────────
 
-function SessionRow({ session, cursoId }: { session: Session; cursoId: string }) {
+function SessionRow({
+  session,
+  cursoId,
+  index,
+  totalSessions,
+  allSessionsOfType,
+}: {
+  session: Session
+  cursoId: string
+  index: number
+  totalSessions: number
+  allSessionsOfType: { id: string; orden: number }[]
+}) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-zinc-900 text-base">{session.nombre}</p>
-          <p className="mt-0.5 text-xs text-zinc-500">
-            {session.fecha_liberacion
-              ? `Liberación: ${formatDate(session.fecha_liberacion)}`
-              : 'Disponible inmediatamente'}
-            {' · '}
-            {session.activities.length} actividad
-            {session.activities.length !== 1 ? 'es' : ''}
-          </p>
+        {/* Info & Position Badge & Reorder Controls */}
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 shrink-0 pt-0.5">
+            <span
+              className="inline-flex items-center justify-center font-mono text-xs font-bold text-zinc-700 bg-zinc-100 border border-zinc-200 rounded-lg px-2 py-1 select-none min-w-[32px] text-center shadow-2xs"
+              title={`Posición #${index + 1} en ${session.tipo === 'clase' ? 'En clase' : 'Repaso'}`}
+            >
+              #{index + 1}
+            </span>
+            <SessionOrderControls
+              cursoId={cursoId}
+              tipo={session.tipo}
+              currentSessionId={session.id}
+              currentIndex={index}
+              totalSessions={totalSessions}
+              allSessionsOfType={allSessionsOfType}
+            />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-zinc-900 text-base">{session.nombre}</p>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              {session.fecha_liberacion
+                ? `Liberación: ${formatDate(session.fecha_liberacion)}`
+                : 'Disponible inmediatamente'}
+              {' · '}
+              {session.activities.length} actividad
+              {session.activities.length !== 1 ? 'es' : ''}
+            </p>
+          </div>
         </div>
 
         {/* Actions */}
@@ -180,8 +266,10 @@ function SessionRow({ session, cursoId }: { session: Session; cursoId: string })
               nombre: session.nombre,
               tipo: session.tipo,
               fecha_liberacion: session.fecha_liberacion,
+              orden: session.orden || index + 1,
               activitiesCount: session.activities.length,
             }}
+            totalSessionsOfType={totalSessions}
           />
           <DeleteSessionTrigger
             sessionId={session.id}
@@ -205,7 +293,7 @@ function SessionRow({ session, cursoId }: { session: Session; cursoId: string })
       {session.activities.length > 0 ? (
         <div className="mt-1 pt-3 border-t border-zinc-100 flex flex-wrap items-center gap-2">
           <span className="text-xs font-medium text-zinc-400">Actividades:</span>
-          {session.activities.map((act, index) => (
+          {session.activities.map((act, idx) => (
             <div
               key={act.id}
               className="inline-flex items-center rounded-lg border border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-zinc-300 transition shadow-2xs group overflow-hidden"
@@ -215,19 +303,21 @@ function SessionRow({ session, cursoId }: { session: Session; cursoId: string })
                 className="inline-flex items-center gap-1.5 px-2.5 py-1 text-zinc-800 text-xs font-medium hover:text-zinc-950 transition"
               >
                 <Pencil className="w-3 h-3 text-zinc-400 group-hover:text-zinc-600" />
-                <span>{act.titulo || `Actividad ${index + 1}`}</span>
+                <span>{act.titulo || `Actividad ${idx + 1}`}</span>
               </Link>
               <div className="w-px h-3.5 bg-zinc-200" />
               <DeleteActivityTrigger
                 activityId={act.id}
-                activityTitle={act.titulo || `Actividad ${index + 1}`}
+                activityTitle={act.titulo || `Actividad ${idx + 1}`}
                 variant="chip"
               />
             </div>
           ))}
         </div>
       ) : (
-        <p className="mt-1 text-xs text-zinc-400 italic">No hay actividades creadas en esta sesión.</p>
+        <p className="mt-1 text-xs text-zinc-400 italic">
+          No hay actividades creadas en esta sesión.
+        </p>
       )}
     </div>
   )

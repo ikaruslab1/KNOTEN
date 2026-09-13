@@ -32,7 +32,7 @@ import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
 import LineRailNode from "./LineRailNode"
-import Toolbar from "./Toolbar"
+import Toolbar, { StickerItem } from "./Toolbar"
 import ElasticConnectionLine from "./ElasticConnectionLine"
 import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
@@ -307,10 +307,39 @@ function blocksToNodes(blocks: Block[]): Node[] {
     }
 
     // sticker
+    let emoji = block.contenido ?? '✔️'
+    let text: string | undefined = undefined
+    let bgClass: string | undefined = undefined
+    let borderClass: string | undefined = undefined
+    let textClass: string | undefined = undefined
+    let variant: 'emoji' | 'badge' = 'emoji'
+
+    try {
+      if (block.contenido && block.contenido.startsWith('{')) {
+        const parsed = JSON.parse(block.contenido)
+        if (parsed.text) {
+          variant = 'badge'
+          text = parsed.text
+          bgClass = parsed.bgClass
+          borderClass = parsed.borderClass
+          textClass = parsed.textClass
+        }
+      }
+    } catch {}
+
     return {
       ...base,
       type: "sticker",
-      data: { emoji: block.contenido ?? '✔️', entranceDelay, isExiting: false },
+      data: {
+        variant,
+        emoji,
+        text,
+        bgClass,
+        borderClass,
+        textClass,
+        entranceDelay,
+        isExiting: false,
+      },
     }
   })
 
@@ -368,6 +397,10 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   }
   if (node.type === "sticker") {
     const scale = node.data?.scale ?? 1
+    if (node.data?.text) {
+      const textLen = String(node.data.text).length
+      return { width: Math.max(70, textLen * 9 + 32) * scale, height: 38 * scale }
+    }
     return { width: 64 * scale, height: 64 * scale }
   }
   // codeBlock default estimate
@@ -576,47 +609,77 @@ function FlowCanvasInner({
   const alignLine = useCallback(
     (lineNumber: number = 1) => {
       const lineRail = nodes.find((n) => n.type === "lineRail" || n.id === "line-rail")
-      const targetHandle = `line-${lineNumber}`
-
-      const railLines = lineRail?.data?.lines ?? 1
-      const clampedLine = Math.min(Math.max(1, lineNumber), railLines)
+      const targetLine = Math.max(1, lineNumber)
+      const targetHandle = `line-${targetLine}`
 
       const railX = lineRail ? lineRail.position.x : 30
       const railY = lineRail ? lineRail.position.y : 80
       const railWidth = lineRail?.width ?? 130
 
-      // Handle center Y for this line: 36px header + (line-1)*64 + 32
-      const handleCenterY = railY + 36 + (clampedLine - 1) * 64 + 32
+      // Handle center Y for this line: 36px header + (targetLine - 1) * 64 + 32
+      const handleCenterY = railY + 36 + (targetLine - 1) * 64 + 32
 
-      // Find the edge originating from lineRail at this handle
+      // 1. Find edge originating from lineRail at this line's handle
       const startEdge = edges.find(
         (e) =>
           (e.source === "line-rail" || (lineRail && e.source === lineRail.id)) &&
-          (e.sourceHandle === targetHandle || (!e.sourceHandle && clampedLine === 1))
+          (e.sourceHandle === targetHandle || (!e.sourceHandle && targetLine === 1))
       )
 
       const chainNodes: Node[] = []
-      const visited = new Set<string>()
-      let currentId = startEdge?.target
+      if (startEdge?.target) {
+        const visited = new Set<string>()
+        let currentId: string | undefined = startEdge.target
 
-      while (currentId && !visited.has(currentId)) {
-        visited.add(currentId)
-        const n = nodes.find((node) => node.id === currentId)
-        if (n) {
-          chainNodes.push(n)
-          const nextEdge = edges.find((e) => e.source === currentId)
-          currentId = nextEdge?.target
-        } else {
-          break
+        while (currentId && !visited.has(currentId)) {
+          visited.add(currentId)
+          const n = nodes.find((node) => node.id === currentId)
+          if (n) {
+            chainNodes.push(n)
+            const nextEdge = edges.find((e) => e.source === currentId)
+            currentId = nextEdge?.target
+          } else {
+            break
+          }
         }
       }
 
-      // Fallback: if no nodes connected to this line rail handle, check selected nodes
       let nodesToAlign = chainNodes
+
+      // 2. Fallback: if no nodes connected to this line rail handle, check selected nodes
       if (nodesToAlign.length === 0) {
         const selected = nodes.filter((n) => n.selected && n.type !== "lineRail")
         if (selected.length > 0) {
           nodesToAlign = [...selected].sort((a, b) => a.position.x - b.position.x)
+        }
+      }
+
+      // 3. Fallback: find unassigned code/indent nodes placed near this line's Y row
+      if (nodesToAlign.length === 0) {
+        // Collect node IDs already attached to any line rail handle chain so we don't displace them
+        const assignedNodeIds = new Set<string>()
+        for (const edge of edges) {
+          if (edge.source === "line-rail" || (lineRail && edge.source === lineRail.id)) {
+            let cur: string | undefined = edge.target
+            while (cur && !assignedNodeIds.has(cur)) {
+              assignedNodeIds.add(cur)
+              const next: Edge | undefined = edges.find((e) => e.source === cur)
+              cur = next?.target
+            }
+          }
+        }
+
+        const candidates = nodes.filter((n) => {
+          if (n.type === "lineRail" || n.type === "sticker" || assignedNodeIds.has(n.id)) {
+            return false
+          }
+          const { height } = getNodeDimensions(n)
+          const nodeCenterY = n.position.y + (n.type === "indentBlock" ? 68 : height / 2)
+          return Math.abs(nodeCenterY - handleCenterY) <= 36
+        })
+
+        if (candidates.length > 0) {
+          nodesToAlign = [...candidates].sort((a, b) => a.position.x - b.position.x)
         }
       }
 
@@ -672,6 +735,26 @@ function FlowCanvasInner({
     }
   }, [nodes, alignLine])
 
+  const handleLinesChange = useCallback(
+    (newLines: number) => {
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.type === "lineRail" || n.id === "line-rail") {
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                lines: newLines,
+              },
+            }
+          }
+          return n
+        })
+      )
+    },
+    [setNodes]
+  )
+
   // Ref to always access the latest alignLine function without triggering re-render loops
   const alignLineRef = useRef<(lineNumber?: number) => void>(() => {})
   alignLineRef.current = alignLine
@@ -680,11 +763,15 @@ function FlowCanvasInner({
     alignLineRef.current(lineNumber)
   }, [])
 
-  // Keep onAlignLine wired to lineRailNode safely without causing an infinite re-render loop
+  // Keep onAlignLine and onLinesChange wired to lineRailNode safely without causing an infinite re-render loop
   useEffect(() => {
     setNodes((nds) => {
       const lineRail = nds.find((n) => n.type === "lineRail" || n.id === "line-rail")
-      if (lineRail && lineRail.data?.onAlignLine === stableAlignLine) {
+      if (
+        lineRail &&
+        lineRail.data?.onAlignLine === stableAlignLine &&
+        lineRail.data?.onLinesChange === handleLinesChange
+      ) {
         return nds
       }
       return nds.map((n) => {
@@ -694,13 +781,14 @@ function FlowCanvasInner({
             data: {
               ...n.data,
               onAlignLine: stableAlignLine,
+              onLinesChange: handleLinesChange,
             },
           }
         }
         return n
       })
     })
-  }, [stableAlignLine, setNodes])
+  }, [stableAlignLine, handleLinesChange, setNodes])
 
   // ── Activity switch with cartoon bounce zoom-out exit ──────────────────────
   const handleSwitchActivity = useCallback(
@@ -837,12 +925,25 @@ function FlowCanvasInner({
     fitView({ duration: 500, padding: 0.2 })
   }, [fitView])
 
-  const onAddSticker = useCallback((emoji: string) => {
+  const onAddSticker = useCallback((sticker: StickerItem | string) => {
+    const isString = typeof sticker === 'string'
+    const stickerData = isString
+      ? { variant: 'emoji', emoji: sticker, scale: 1 }
+      : {
+          variant: sticker.variant || (sticker.emoji ? 'emoji' : 'badge'),
+          emoji: sticker.emoji,
+          text: sticker.text,
+          bgClass: sticker.bgClass,
+          borderClass: sticker.borderClass,
+          textClass: sticker.textClass,
+          scale: 1,
+        }
+
     const newNode: Node = {
       id: `sticker-${Date.now()}`,
       type: "sticker",
       position: { x: 250 + Math.random() * 40, y: 150 + Math.random() * 40 },
-      data: { emoji, scale: 1 },
+      data: stickerData,
     }
     setNodes((nds) => [...nds, newNode])
   }, [setNodes])

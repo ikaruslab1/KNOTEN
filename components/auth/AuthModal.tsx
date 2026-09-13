@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
 import {
   X,
@@ -78,6 +79,22 @@ export default function AuthModal({
   const router = useRouter()
   const supabase = createClient()
   const modalRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
+      return () => {
+        document.body.style.overflow = originalOverflow
+      }
+    }
+  }, [isOpen])
 
   // Listen to global open event
   useEffect(() => {
@@ -218,9 +235,9 @@ export default function AuthModal({
     }
   }
 
-  if (!isOpen) return null
+  if (!isOpen || !mounted || typeof document === 'undefined') return null
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200 overflow-y-auto"
       onClick={(e) => {
@@ -580,6 +597,7 @@ export default function AuthModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

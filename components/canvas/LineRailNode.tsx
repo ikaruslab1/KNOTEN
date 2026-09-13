@@ -1,7 +1,7 @@
 'use client'
 
 import { memo, useState, useEffect } from 'react'
-import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
+import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow'
 import { ArrowRight, Hash, Plus, Minus, AlignCenterHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -18,8 +18,16 @@ export const RAIL_HEADER_HEIGHT = 36
 export const RAIL_FOOTER_HEIGHT = 36
 
 const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
+  const { setNodes, setEdges } = useReactFlow()
   const [lines, setLines] = useState<number>(data?.lines ?? 1)
   const updateNodeInternals = useUpdateNodeInternals()
+
+  // Keep state in sync with external data.lines
+  useEffect(() => {
+    if (data?.lines !== undefined && data.lines !== lines) {
+      setLines(data.lines)
+    }
+  }, [data?.lines])
 
   useEffect(() => {
     updateNodeInternals(id)
@@ -34,6 +42,11 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
   const addLine = () => {
     const next = lines + 1
     setLines(next)
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, lines: next } } : n
+      )
+    )
     data?.onLinesChange?.(next)
     setTimeout(() => updateNodeInternals(id), 10)
   }
@@ -41,7 +54,16 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
   const removeLine = () => {
     if (lines <= 1) return
     const next = lines - 1
+    const removedLineNum = lines
     setLines(next)
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, lines: next } } : n
+      )
+    )
+    setEdges((eds) =>
+      eds.filter((e) => !(e.source === id && e.sourceHandle === `line-${removedLineNum}`))
+    )
     data?.onLinesChange?.(next)
     setTimeout(() => updateNodeInternals(id), 10)
   }

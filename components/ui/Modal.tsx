@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, ReactNode } from 'react'
+import { useEffect, useRef, useState, ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +24,11 @@ const maxWidthClasses = {
 
 export function Modal({ isOpen, onClose, title, children, maxWidth = 'md', className }: ModalProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   // Close on Escape key
   useEffect(() => {
@@ -44,9 +50,9 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md', class
     return () => { document.body.style.overflow = '' }
   }, [isOpen])
 
-  if (!isOpen) return null
+  if (!isOpen || !mounted || typeof document === 'undefined') return null
 
-  return (
+  return createPortal(
     <div
       ref={overlayRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -76,6 +82,7 @@ export function Modal({ isOpen, onClose, title, children, maxWidth = 'md', class
         )}
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }

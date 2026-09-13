@@ -51,6 +51,9 @@ export default function CourseSessionsView({
   const [isTransitioning, setIsTransitioning] = useState(false)
   const router = useRouter()
 
+  const sortedClase = [...claseSessions].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+  const sortedRepaso = [...repasoSessions].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+
   const handleSessionClick = (session: SessionItem, href: string, isLocked: boolean) => {
     if (isLocked) return
     if (isTransitioning) return
@@ -227,13 +230,13 @@ export default function CourseSessionsView({
             </span>
           </div>
 
-          {claseSessions.length === 0 ? (
+          {sortedClase.length === 0 ? (
             <div className="p-8 rounded-2xl border border-dashed border-zinc-300 bg-white text-center text-sm text-zinc-500 animate-slide-up-fade">
               No hay actividades en clase programadas para este curso todavía.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {claseSessions.map((s, idx) => renderSessionCard(s, idx))}
+              {sortedClase.map((s, idx) => renderSessionCard(s, idx))}
             </div>
           )}
         </section>
@@ -246,18 +249,18 @@ export default function CourseSessionsView({
               <p className="text-xs text-zinc-500">Práctica autónoma y refuerzo de conceptos</p>
             </div>
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-zinc-200 text-zinc-800">
-              {repasoSessions.length} {repasoSessions.length === 1 ? 'sesión' : 'sesiones'}
+              {sortedRepaso.length} {sortedRepaso.length === 1 ? 'sesión' : 'sesiones'}
             </span>
           </div>
 
-          {repasoSessions.length === 0 ? (
+          {sortedRepaso.length === 0 ? (
             <div className="p-8 rounded-2xl border border-dashed border-zinc-300 bg-white text-center text-sm text-zinc-500 animate-slide-up-fade [animation-delay:200ms]">
               No hay actividades de repaso registradas en este curso.
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {repasoSessions.map((s, idx) =>
-                renderSessionCard(s, idx + claseSessions.length)
+              {sortedRepaso.map((s, idx) =>
+                renderSessionCard(s, idx + sortedClase.length)
               )}
             </div>
           )}
