@@ -86,7 +86,7 @@ const RectangleNode = memo(({ id, data, selected }: NodeProps<RectangleNodeData>
             ? undefined
             : {
                 borderColor: activeBorder || "#a1a1aa", // default neutral gray border
-                backgroundColor: activeBg || "transparent", // default no fill
+                backgroundColor: "transparent", // overlay renders the 8% tint over elements
               }
         }
       />

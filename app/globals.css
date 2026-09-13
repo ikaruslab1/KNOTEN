@@ -409,17 +409,7 @@ body {
 .rainbow-rectangle-border {
   border: 3px solid transparent;
   background:
-    linear-gradient(
-      135deg,
-      rgba(239, 68, 68, 0.04),
-      rgba(249, 115, 22, 0.04),
-      rgba(245, 158, 11, 0.04),
-      rgba(16, 185, 129, 0.04),
-      rgba(59, 130, 246, 0.04),
-      rgba(168, 85, 247, 0.04),
-      rgba(236, 72, 153, 0.04),
-      rgba(239, 68, 68, 0.04)
-    ) padding-box,
+    linear-gradient(transparent, transparent) padding-box,
     linear-gradient(
       135deg,
       #ef4444,
@@ -431,7 +421,20 @@ body {
       #ec4899,
       #ef4444
     ) border-box;
-  background-size: 300% 300%, 300% 300%;
+  background-size: 100% 100%, 300% 300%;
   animation: rainbowFlow 3.5s linear infinite, rainbowGlow 3.5s ease-in-out infinite;
 }
+
+/* Stacking context: Keep rectangle node containers in background so blocks above can be selected */
+.react-flow__node.react-flow__node-rectangleShape {
+  z-index: 0 !important;
+}
+
+.react-flow__node.react-flow__node-codeBlock,
+.react-flow__node.react-flow__node-indentBlock,
+.react-flow__node.react-flow__node-lineRail,
+.react-flow__node.react-flow__node-sticker {
+  z-index: 10 !important;
+}
+
 

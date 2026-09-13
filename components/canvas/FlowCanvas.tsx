@@ -424,25 +424,25 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
 // ─── Helper: Block Stickers Color & Pride Rainbow Mapping ─────────────────────
 
 const BLOCK_COLOR_MAP: Record<string, { border: string; bg: string }> = {
-  'block-variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' },
-  'block-operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' },
-  'block-condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' },
-  'block-bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' },
-  'block-funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
-  'block-clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' },
-  'block-modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
-  'block-excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
-  'variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' },
-  'operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' },
-  'condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' },
-  'bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' },
-  'función': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
-  'funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' },
-  'clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' },
-  'módulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
-  'modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' },
-  'excepción': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
-  'excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' },
+  'block-variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' },
+  'block-operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' },
+  'block-condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' },
+  'block-bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.08)' },
+  'block-funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' },
+  'block-clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' },
+  'block-modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' },
+  'block-excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' },
+  'variable': { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' },
+  'operador': { border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' },
+  'condicional': { border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' },
+  'bucle': { border: '#a855f7', bg: 'rgba(168, 85, 247, 0.08)' },
+  'función': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' },
+  'funcion': { border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' },
+  'clase': { border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' },
+  'módulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' },
+  'modulo': { border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' },
+  'excepción': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' },
+  'excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' },
 }
 
 function getStickerEffect(sticker: Node): { type: 'rainbow' } | { type: 'block'; border: string; bg: string } | null {
@@ -474,14 +474,14 @@ function getStickerEffect(sticker: Node): { type: 'rainbow' } | { type: 'block';
   }
 
   if (typeof data.borderClass === 'string') {
-    if (data.borderClass.includes('red')) return { type: 'block', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.04)' }
-    if (data.borderClass.includes('pink')) return { type: 'block', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.04)' }
-    if (data.borderClass.includes('emerald')) return { type: 'block', border: '#10b981', bg: 'rgba(16, 185, 129, 0.04)' }
-    if (data.borderClass.includes('purple')) return { type: 'block', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.04)' }
-    if (data.borderClass.includes('amber')) return { type: 'block', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.04)' }
-    if (data.borderClass.includes('blue')) return { type: 'block', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.04)' }
-    if (data.borderClass.includes('zinc')) return { type: 'block', border: '#71717a', bg: 'rgba(113, 113, 122, 0.04)' }
-    if (data.borderClass.includes('orange')) return { type: 'block', border: '#f97316', bg: 'rgba(249, 115, 22, 0.04)' }
+    if (data.borderClass.includes('red')) return { type: 'block', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' }
+    if (data.borderClass.includes('pink')) return { type: 'block', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' }
+    if (data.borderClass.includes('emerald')) return { type: 'block', border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' }
+    if (data.borderClass.includes('purple')) return { type: 'block', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.08)' }
+    if (data.borderClass.includes('amber')) return { type: 'block', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' }
+    if (data.borderClass.includes('blue')) return { type: 'block', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' }
+    if (data.borderClass.includes('zinc')) return { type: 'block', border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' }
+    if (data.borderClass.includes('orange')) return { type: 'block', border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' }
   }
 
   return null
@@ -529,6 +529,45 @@ function SmartGuides({
           }}
         />
       )}
+    </div>
+  )
+}
+
+// ─── Component: Translucent Overlay for Reactive Rectangles ───────────────────
+// Renders above all canvas nodes (z-20) with pointer-events: none, so the 8% tint
+// visually blankets all elements inside the rectangle, while clicks and selections
+// go directly to the blocks and stickers underneath.
+function RectangleOverlays({ nodes }: { nodes: Node[] }) {
+  const { x: vpX, y: vpY, zoom } = useViewport()
+  const activeRectangles = nodes.filter(
+    (n) => n.type === "rectangleShape" && n.data?.activeBgColor && !n.data?.isRainbow
+  )
+
+  if (activeRectangles.length === 0) return null
+
+  return (
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden select-none">
+      {activeRectangles.map((rect) => {
+        const { width, height } = getNodeDimensions(rect)
+        const left = rect.position.x * zoom + vpX
+        const top = rect.position.y * zoom + vpY
+        const w = width * zoom
+        const h = height * zoom
+
+        return (
+          <div
+            key={`overlay-${rect.id}`}
+            className="absolute rounded-xl transition-all duration-150 pointer-events-none"
+            style={{
+              left,
+              top,
+              width: w,
+              height: h,
+              backgroundColor: rect.data.activeBgColor,
+            }}
+          />
+        )
+      })}
     </div>
   )
 }
@@ -1940,6 +1979,7 @@ function FlowCanvasInner({
         />
         <Controls showInteractive={false} />
         <SmartGuides guideLines={guideLines} />
+        <RectangleOverlays nodes={nodes} />
       </ReactFlow>
 
       {/* Particle explosion effects on cancelled / broken connections */}
