@@ -4,6 +4,7 @@ import { ChevronRight, BookOpen, Clock, Pencil, Plus } from 'lucide-react'
 import { createClient, getCurrentUser } from '@/lib/supabase/server'
 import { formatDate } from '@/lib/utils'
 import SessionCreateTrigger from '@/components/professor/SessionCreateTrigger'
+import SessionEditTrigger from '@/components/professor/SessionEditTrigger'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,19 +73,19 @@ export default async function ProfesorCursoPage({
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header / breadcrumb */}
-      <header className="border-b border-zinc-200 bg-white px-6 py-4">
+      <header className="border-b border-zinc-200 bg-white px-4 sm:px-6 py-4">
         <div className="mx-auto max-w-5xl">
-          <nav className="flex items-center gap-1.5 text-sm text-zinc-500">
+          <nav className="flex items-center gap-1.5 text-xs sm:text-sm text-zinc-500">
             <Link href="/profesor" className="hover:text-zinc-900 transition-colors">
               Mis cursos
             </Link>
             <ChevronRight className="h-4 w-4 text-zinc-400" />
-            <span className="font-medium text-zinc-900 truncate max-w-xs">
+            <span className="font-medium text-zinc-900 truncate max-w-[160px] sm:max-w-xs">
               {course.nombre}
             </span>
           </nav>
           <div className="mt-2 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-            <h1 className="text-2xl font-bold text-zinc-900">{course.nombre}</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-zinc-900">{course.nombre}</h1>
             <Link
               href={`/curso/${id}`}
               target="_blank"
@@ -96,7 +97,7 @@ export default async function ProfesorCursoPage({
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl space-y-10 px-6 py-8">
+      <main className="mx-auto max-w-5xl space-y-8 sm:space-y-10 px-4 sm:px-6 py-6 sm:py-8">
         {/* ── En clase ─────────────────────────────────────────────────────── */}
         <section>
           <div className="mb-4 flex items-center gap-2">
@@ -109,7 +110,7 @@ export default async function ProfesorCursoPage({
 
           <div className="flex flex-col gap-3">
             {claseSessions.map((session) => (
-              <SessionRow key={session.id} session={session} />
+              <SessionRow key={session.id} session={session} cursoId={id} />
             ))}
 
             {/* Create session card */}
@@ -129,7 +130,7 @@ export default async function ProfesorCursoPage({
 
           <div className="flex flex-col gap-3">
             {repasoSessions.map((session) => (
-              <SessionRow key={session.id} session={session} />
+              <SessionRow key={session.id} session={session} cursoId={id} />
             ))}
 
             {/* Create session card */}
@@ -143,7 +144,7 @@ export default async function ProfesorCursoPage({
 
 // ─── Session Row ──────────────────────────────────────────────────────────────
 
-function SessionRow({ session }: { session: Session }) {
+function SessionRow({ session, cursoId }: { session: Session; cursoId: string }) {
   return (
     <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 bg-white p-5 shadow-sm">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -161,7 +162,17 @@ function SessionRow({ session }: { session: Session }) {
         </div>
 
         {/* Actions */}
-        <div className="flex shrink-0 gap-2">
+        <div className="flex shrink-0 items-center gap-2">
+          <SessionEditTrigger
+            cursoId={cursoId}
+            session={{
+              id: session.id,
+              nombre: session.nombre,
+              tipo: session.tipo,
+              fecha_liberacion: session.fecha_liberacion,
+              activitiesCount: session.activities.length,
+            }}
+          />
           {session.activities.length > 0 && (
             <Link
               href={`/actividad/${session.activities[0].id}`}

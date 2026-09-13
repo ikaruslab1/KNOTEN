@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
   ] = await Promise.all([
     adminClient
       .from('activities')
-      .select('id, resultado_esperado')
+      .select('id, resultado_esperado, session_id, sessions ( tipo )')
       .eq('id', activityId)
       .maybeSingle(),
     adminClient
@@ -239,33 +239,38 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // ── 7. Upsert progress record ──────────────────────────────────────────
-  const { data: existingProgress } = await adminClient
-    .from('progress')
-    .select('intentos, completado')
-    .eq('student_id', user.id)
-    .eq('activity_id', activityId)
-    .maybeSingle()
+  // ── 7. Upsert progress record (Only for 'repaso' sessions; 'clase' is stored in local cache)
+  const sessionTipo = (activityData?.sessions as any)?.tipo
+  const isClaseActivity = sessionTipo === 'clase'
 
-  const prevAttempts = (existingProgress?.intentos as number | null) ?? 0
-  const alreadyCompleted = (existingProgress?.completado as boolean | null) ?? false
+  if (!isClaseActivity) {
+    const { data: existingProgress } = await adminClient
+      .from('progress')
+      .select('intentos, completado')
+      .eq('student_id', user.id)
+      .eq('activity_id', activityId)
+      .maybeSingle()
 
-  const progressUpdate: Record<string, unknown> = {
-    student_id: user.id,
-    activity_id: activityId,
-    intentos: prevAttempts + 1,
-    completado: alreadyCompleted || isSuccess,
-    ...(isSuccess && !alreadyCompleted
-      ? { fecha_completado: new Date().toISOString() }
-      : {}),
-  }
+    const prevAttempts = (existingProgress?.intentos as number | null) ?? 0
+    const alreadyCompleted = (existingProgress?.completado as boolean | null) ?? false
 
-  const { error: upsertError } = await adminClient
-    .from('progress')
-    .upsert(progressUpdate, { onConflict: 'student_id,activity_id' })
+    const progressUpdate: Record<string, unknown> = {
+      student_id: user.id,
+      activity_id: activityId,
+      intentos: prevAttempts + 1,
+      completado: alreadyCompleted || isSuccess,
+      ...(isSuccess && !alreadyCompleted
+        ? { fecha_completado: new Date().toISOString() }
+        : {}),
+    }
 
-  if (upsertError) {
-    console.error('[validate] Error upserting progress:', upsertError)
+    const { error: upsertError } = await adminClient
+      .from('progress')
+      .upsert(progressUpdate, { onConflict: 'student_id,activity_id' })
+
+    if (upsertError) {
+      console.error('[validate] Error upserting progress:', upsertError)
+    }
   }
 
   // ── 8. Return result ───────────────────────────────────────────────────
@@ -274,6 +279,7 @@ export async function POST(request: NextRequest) {
       success: isSuccess,
       message: responseMessage,
       stdout: executionStdout,
+      sessionType: sessionTipo || 'clase',
     },
     { status: 200 },
   )

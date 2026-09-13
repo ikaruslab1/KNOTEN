@@ -47,24 +47,24 @@ export default async function HomePage() {
       <NavBar />
 
       {/* Hero Section (Monochromatic) */}
-      <section className="bg-white py-16 sm:py-20 px-6 text-center border-b border-zinc-200">
+      <section className="bg-white py-12 sm:py-20 px-4 sm:px-6 text-center border-b border-zinc-200">
         <div className="max-w-3xl mx-auto">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-100 border border-zinc-200 text-xs font-semibold uppercase tracking-wider text-zinc-700 mb-6">
             <Layers className="w-3.5 h-3.5" />
             Programación visual e interactiva
           </div>
-          <h1 className="text-4xl sm:text-6xl font-black text-zinc-900 tracking-tight leading-tight">
+          <h1 className="text-3xl sm:text-6xl font-black text-zinc-900 tracking-tight leading-tight">
             Aprende Python mediante{' '}
             <span className="underline decoration-zinc-400 decoration-wavy decoration-2">nodos lógicos</span>
           </h1>
-          <p className="text-base sm:text-lg text-zinc-600 max-w-xl mx-auto mt-4">
+          <p className="text-sm sm:text-lg text-zinc-600 max-w-xl mx-auto mt-4">
             Conecta bloques de código, visualiza la estructura de indentación y domina la sintaxis en un lienzo infinito.
           </p>
         </div>
       </section>
 
       {/* Course Grid */}
-      <main className="max-w-7xl mx-auto px-6 py-12">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
         <div className="flex items-center justify-between mb-8">
           <div>
             <h2 className="text-xl font-bold text-zinc-900">Cursos disponibles</h2>

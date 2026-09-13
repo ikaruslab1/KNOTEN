@@ -34,6 +34,7 @@ export default function SessionCreateTrigger({ cursoId, tipo }: Props) {
         isOpen={open}
         onClose={() => setOpen(false)}
         cursoId={cursoId}
+        tipo={tipo || 'clase'}
       />
     </>
   )

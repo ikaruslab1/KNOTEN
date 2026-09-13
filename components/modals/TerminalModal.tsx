@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 import { useEffect, useState, useRef } from 'react'
 import { X } from 'lucide-react'
 import confetti from 'canvas-confetti'
@@ -79,20 +79,20 @@ export default function TerminalModal({
         if (e.target === e.currentTarget) onClose()
       }}
     >
-      <div className="max-w-2xl w-full mx-4 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden shadow-2xl">
+      <div className="max-w-2xl w-full mx-3 sm:mx-4 bg-gray-900 rounded-xl border border-gray-700 overflow-hidden shadow-2xl max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Terminal header */}
-        <div className="flex items-center justify-between px-4 py-3 bg-gray-800 border-b border-gray-700">
-          <div className="flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-red-500" />
-            <span className="w-3 h-3 rounded-full bg-yellow-400" />
-            <span className="w-3 h-3 rounded-full bg-green-500" />
+        <div className="flex items-center justify-between px-3.5 sm:px-4 py-2.5 sm:py-3 bg-gray-800 border-b border-gray-700 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-red-500" />
+            <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-yellow-400" />
+            <span className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-green-500" />
           </div>
-          <span className="text-xs text-gray-400 font-mono tracking-widest">
+          <span className="text-[11px] sm:text-xs text-gray-400 font-mono tracking-widest">
             python terminal
           </span>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-200 transition-colors"
+            className="text-gray-500 hover:text-gray-200 p-1 rounded transition-colors"
             title="Cerrar"
           >
             <X size={16} />
@@ -102,7 +102,7 @@ export default function TerminalModal({
         {/* Terminal body */}
         <div
           ref={bodyRef}
-          className="min-h-48 max-h-96 overflow-y-auto p-4 font-mono text-sm space-y-0.5"
+          className="min-h-36 sm:min-h-48 max-h-[60vh] sm:max-h-96 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-0.5"
         >
           {displayedLines.map((line, i) => (
             <div key={i} className={cn('leading-5', lineColorClass())}>

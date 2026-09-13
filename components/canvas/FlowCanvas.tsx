@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState, useRef } from "react"
+import { useCallback, useState, useRef, useEffect } from "react"
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -23,7 +23,8 @@ import "reactflow/dist/style.css"
 import confetti from "canvas-confetti"
 
 import Link from "next/link"
-import { ChevronLeft } from "lucide-react"
+import { ChevronLeft, ChevronDown, ChevronUp, CheckCircle2, Circle, ArrowRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
@@ -32,6 +33,7 @@ import Toolbar from "./Toolbar"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas } from "@/lib/code-reconstructor"
+import { saveActivity } from "@/lib/offline/db"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -75,8 +77,13 @@ type NodeState = "idle" | "connected" | "success" | "error"
 export interface FlowCanvasProps {
   activityId: string
   activityTitle?: string
+  activityOrder?: number
   courseId?: string
   courseName?: string
+  sessionName?: string
+  sessionType?: "clase" | "repaso"
+  sessionActivities?: Array<{ id: string; titulo: string; orden: number }>
+  initialCompletedMap?: Record<string, boolean>
   blocks: Block[]
   connections: BlockConnection[] // correct connections from DB – NOT shown to student
   enunciado: string
@@ -289,8 +296,13 @@ function getStudentBlockOrder(edges: Edge[], nodes: Node[]): string[] {
 function FlowCanvasInner({
   activityId,
   activityTitle,
+  activityOrder,
   courseId,
   courseName,
+  sessionName,
+  sessionType = "clase",
+  sessionActivities = [],
+  initialCompletedMap = {},
   blocks,
   connections,
   enunciado,
@@ -308,16 +320,123 @@ function FlowCanvasInner({
   const [showProblem, setShowProblem] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
 
+  // ── Completion & Local Cache Management ─────────────────────────────────────
+  const [completedMap, setCompletedMap] = useState<Record<string, boolean>>(
+    initialCompletedMap ?? {}
+  )
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem("knoten_completed_activities")
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (typeof parsed === "object" && parsed !== null) {
+          setCompletedMap((prev) => ({ ...prev, ...parsed }))
+        }
+      }
+    } catch (e) {
+      console.error("Error reading localStorage completed activities", e)
+    }
+  }, [])
+
+  const handleToggleCompleted = useCallback(
+    (actId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation()
+      e?.preventDefault()
+      setCompletedMap((prev) => {
+        const nextVal = !prev[actId]
+        const updated = { ...prev, [actId]: nextVal }
+        try {
+          localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
+        } catch (err) {
+          console.error("Error updating localStorage", err)
+        }
+        return updated
+      })
+    },
+    []
+  )
+
+  // ── Auto-cache activity to IndexedDB for offline access ────────────────────
+  useEffect(() => {
+    if (activityId && blocks && blocks.length > 0) {
+      saveActivity({
+        id: activityId,
+        session_id: '',
+        titulo: activityTitle || 'Actividad',
+        enunciado: enunciado || null,
+        resultado_esperado: resultadoEsperado || null,
+        orden: activityOrder ?? 0,
+        blocks: blocks as any,
+        connections: connections as any,
+        session_nombre: sessionName,
+        session_tipo: sessionType,
+        curso_id: courseId,
+        curso_nombre: courseName,
+      }).catch(() => {
+        // Silently catch in environments where IndexedDB might be restricted
+      })
+    }
+  }, [
+    activityId,
+    blocks,
+    connections,
+    activityTitle,
+    enunciado,
+    resultadoEsperado,
+    activityOrder,
+    sessionName,
+    sessionType,
+    courseId,
+    courseName,
+  ])
+
+  // ── Activity Selector & Next Activity computation ──────────────────────────
+  const [selectorOpen, setSelectorOpen] = useState(false)
+  const [isMobileNavFolded, setIsMobileNavFolded] = useState(false)
+  const [isMobileToolbarFolded, setIsMobileToolbarFolded] = useState(false)
+  const dropdownRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as HTMLElement)) {
+        setSelectorOpen(false)
+      }
+    }
+    if (selectorOpen) {
+      document.addEventListener("mousedown", handleClickOutside)
+    }
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside)
+    }
+  }, [selectorOpen])
+
+  const activitiesList =
+    sessionActivities && sessionActivities.length > 0
+      ? sessionActivities
+      : [{ id: activityId, titulo: activityTitle || "Actividad", orden: activityOrder ?? 0 }]
+
+  const currentIndex = activitiesList.findIndex((a) => a.id === activityId)
+  const nextActivity =
+    currentIndex !== -1 && currentIndex < activitiesList.length - 1
+      ? activitiesList[currentIndex + 1]
+      : null
+
+  const isCurrentCompleted = Boolean(completedMap[activityId])
+  const currentDisplayTitle =
+    activityTitle ||
+    (activityOrder !== undefined ? `Actividad ${activityOrder + 1}` : "Actividad")
+
   const onCenter = useCallback(() => {
     fitView({ duration: 500, padding: 0.2 })
   }, [fitView])
 
-  const onAddSticker = useCallback((emoji: '✔️' | '❌' | '❔' | '☣️') => {
+  const onAddSticker = useCallback((emoji: string) => {
     const newNode: Node = {
       id: `sticker-${Date.now()}`,
       type: "sticker",
       position: { x: 250 + Math.random() * 40, y: 150 + Math.random() * 40 },
-      data: { emoji },
+      data: { emoji, scale: 1 },
     }
     setNodes((nds) => [...nds, newNode])
   }, [setNodes])
@@ -550,6 +669,17 @@ function FlowCanvasInner({
           }))
         )
 
+        // Mark as completed in local state & localStorage
+        setCompletedMap((prev) => {
+          const updated = { ...prev, [activityId]: true }
+          try {
+            localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
+          } catch (e) {
+            console.error("Error saving completed activities to localStorage", e)
+          }
+          return updated
+        })
+
         // Celebrate 🎉
         confetti({
           particleCount: 120,
@@ -609,22 +739,154 @@ function FlowCanvasInner({
 
   return (
     <div className="w-full h-screen relative">
-      {/* Top-left back button & activity title */}
-      <div className="fixed top-4 left-4 z-50 flex items-center gap-2">
-        <Link
-          href={courseId ? `/curso/${courseId}` : '/'}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 shadow-sm text-xs font-semibold transition"
-          title="Volver al curso"
-        >
-          <ChevronLeft className="w-4 h-4" />
-          <span>{courseName ? courseName : 'Volver al curso'}</span>
-        </Link>
-        {activityTitle && (
-          <span className="hidden sm:inline-block px-3 py-2 rounded-xl bg-white/90 backdrop-blur-sm border border-zinc-200 text-zinc-800 text-xs font-semibold shadow-sm">
-            {activityTitle}
-          </span>
+      {/* Top navigation & activity selector */}
+      <div
+        className={cn(
+          "fixed z-50 flex items-center gap-1.5 sm:gap-2 transition-all duration-300 transform",
+          // Desktop / Tablet
+          "sm:top-4 sm:left-4 sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto",
+          // Mobile: top-2.5 left-2.5 right-2.5 justify-between sm:justify-start sm:right-auto max-w-[calc(100vw-20px)]",
+          "top-2.5 left-2.5 right-2.5 justify-between sm:justify-start sm:right-auto",
+          isMobileNavFolded && "-translate-y-20 opacity-0 pointer-events-none sm:translate-y-0 sm:opacity-100 sm:pointer-events-auto"
         )}
+      >
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 max-w-[calc(100vw-50px)] sm:max-w-none">
+          <Link
+            href={courseId ? `/curso/${courseId}` : '/'}
+            className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 shadow-sm text-xs font-semibold transition shrink-0"
+            title="Volver al curso"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">{courseName ? courseName : 'Volver al curso'}</span>
+            <span className="sm:hidden">Curso</span>
+          </Link>
+
+          {/* Activity selector dropdown */}
+          <div className="relative shrink-0" ref={dropdownRef}>
+            <button
+              type="button"
+              onClick={() => setSelectorOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 sm:gap-2 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-800 text-xs font-semibold shadow-sm hover:bg-zinc-50 transition"
+            >
+              <div className="flex items-center gap-1.5">
+                {isCurrentCompleted && (
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                )}
+                <span className="max-w-[100px] sm:max-w-none truncate">{currentDisplayTitle}</span>
+              </div>
+              <ChevronDown
+                className={cn(
+                  "w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 shrink-0",
+                  selectorOpen && "rotate-180"
+                )}
+              />
+            </button>
+
+            {selectorOpen && (
+              <div className="absolute top-full left-0 mt-1.5 w-64 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-zinc-200 py-2 z-50 overflow-hidden text-xs">
+                <div className="px-3 py-1.5 border-b border-zinc-100 text-[11px] font-medium text-zinc-400 flex items-center justify-between">
+                  <span className="truncate mr-2">{sessionName || "Actividades de la sesión"}</span>
+                  <span className="text-[10px] bg-zinc-100 text-zinc-600 px-1.5 py-0.5 rounded shrink-0">
+                    {activitiesList.filter((a) => completedMap[a.id]).length}/
+                    {activitiesList.length}
+                  </span>
+                </div>
+                <div className="max-h-60 overflow-y-auto py-1">
+                  {activitiesList.map((act, idx) => {
+                    const isCurrent = act.id === activityId
+                    const isDone = Boolean(completedMap[act.id])
+                    const title =
+                      act.titulo ||
+                      `Actividad ${act.orden !== undefined ? act.orden + 1 : idx + 1}`
+
+                    return (
+                      <div
+                        key={act.id}
+                        className={cn(
+                          "group flex items-center justify-between px-3 py-2 hover:bg-zinc-50 transition-colors",
+                          isCurrent && "bg-zinc-100/80 font-semibold text-zinc-950"
+                        )}
+                      >
+                        <Link
+                          href={`/actividad/${act.id}`}
+                          onClick={() => setSelectorOpen(false)}
+                          className="flex-1 flex items-center gap-2 text-zinc-700 hover:text-zinc-950 truncate mr-2"
+                        >
+                          <span
+                            className={cn(
+                              "w-5 h-5 rounded-full flex items-center justify-center text-[10px] shrink-0 font-medium",
+                              isCurrent
+                                ? "bg-zinc-900 text-white"
+                                : "bg-zinc-100 text-zinc-600 group-hover:bg-zinc-200"
+                            )}
+                          >
+                            {act.orden !== undefined ? act.orden + 1 : idx + 1}
+                          </span>
+                          <span className="truncate">{title}</span>
+                        </Link>
+
+                        {/* Completion toggle button */}
+                        <button
+                          type="button"
+                          onClick={(e) => handleToggleCompleted(act.id, e)}
+                          title={
+                            isDone
+                              ? "Desmarcar como resuelta"
+                              : "Marcar como resuelta"
+                          }
+                          className="p-1 rounded-md text-zinc-400 hover:text-zinc-700 hover:bg-zinc-200/50 transition shrink-0"
+                        >
+                          {isDone ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-600 hover:text-emerald-700" />
+                          ) : (
+                            <Circle className="w-4 h-4 text-zinc-300 hover:text-zinc-500" />
+                          )}
+                        </button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Next activity button (appears when current activity is completed and a next activity exists) */}
+          {isCurrentCompleted && nextActivity && (
+            <Link
+              href={`/actividad/${nextActivity.id}`}
+              className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 shadow-sm text-xs font-semibold transition shrink-0 animate-in fade-in slide-in-from-left-2 duration-200"
+              title="Ir a la siguiente actividad"
+            >
+              <span className="hidden sm:inline">Siguiente actividad</span>
+              <span className="sm:hidden">Siguiente</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          )}
+        </div>
+
+        {/* Mobile Navbar Fold Button */}
+        <button
+          type="button"
+          onClick={() => setIsMobileNavFolded(true)}
+          className="sm:hidden flex items-center justify-center w-8 h-8 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-500 hover:text-zinc-900 shadow-sm shrink-0 transition"
+          title="Plegar barra superior"
+        >
+          <ChevronUp className="w-4 h-4" />
+        </button>
       </div>
+
+      {/* Floating pill when mobile navbar is folded */}
+      {isMobileNavFolded && (
+        <button
+          type="button"
+          onClick={() => setIsMobileNavFolded(false)}
+          className="fixed top-2.5 left-2.5 z-50 sm:hidden flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/95 backdrop-blur-md border border-zinc-200 text-zinc-800 shadow-md text-xs font-semibold animate-in fade-in zoom-in-95 duration-150"
+          title="Desplegar navegación"
+        >
+          <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
+          <span className="truncate max-w-[120px]">{currentDisplayTitle}</span>
+        </button>
+      )}
 
       <Toolbar
         attempts={attempts}
@@ -634,6 +896,8 @@ function FlowCanvasInner({
         onAddSticker={onAddSticker}
         onAddIndentBlock={onAddIndentBlock}
         onShowProblem={() => setShowProblem(true)}
+        isMobileFolded={isMobileToolbarFolded}
+        onToggleMobileFold={() => setIsMobileToolbarFolded((prev) => !prev)}
       />
 
       <ReactFlow

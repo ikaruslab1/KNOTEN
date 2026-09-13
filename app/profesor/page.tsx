@@ -34,18 +34,18 @@ export default async function ProfesorDashboardPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Top bar */}
-      <header className="border-b border-gray-200 bg-white px-6 py-4">
+      <header className="border-b border-gray-200 bg-white px-4 sm:px-6 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Mis cursos</h1>
-            <p className="mt-0.5 text-sm text-gray-500">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Mis cursos</h1>
+            <p className="mt-0.5 text-xs sm:text-sm text-gray-500">
               Bienvenido, {profile.nombre} {profile.apellido_paterno}
             </p>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-6 py-8">
+      <main className="mx-auto max-w-6xl px-4 sm:px-6 py-6 sm:py-8">
         {/* Grid */}
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {/* ── Create card (rendered as a client wrapper for modal) ───────── */}

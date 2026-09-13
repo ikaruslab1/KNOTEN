@@ -4,6 +4,7 @@ import { Lock, ChevronLeft, Calendar } from 'lucide-react';
 import { createClient, getCurrentProfile } from '@/lib/supabase/server';
 import { NavBar } from '@/components/ui/NavBar';
 import { cn } from '@/lib/utils';
+import OfflineSessionBadge from '@/components/pwa/OfflineSessionBadge';
 
 interface Activity {
   id: string;
@@ -103,9 +104,14 @@ function SessionCard({ session, isProfessor }: SessionCardProps) {
       className="rounded-2xl border border-zinc-200 bg-white p-5 flex flex-col justify-between min-h-[120px] hover:shadow-md hover:border-zinc-400 transition-all block group"
     >
       <div className="flex items-start justify-between">
-        <span className="font-bold text-zinc-900 text-base group-hover:text-zinc-700 transition-colors">
-          {session.nombre}
-        </span>
+        <div>
+          <span className="font-bold text-zinc-900 text-base group-hover:text-zinc-700 transition-colors block">
+            {session.nombre}
+          </span>
+          <div className="mt-1.5">
+            <OfflineSessionBadge sessionId={session.id} />
+          </div>
+        </div>
         <span className="text-zinc-400 group-hover:text-zinc-900 transition-colors text-sm font-bold">
           →
         </span>
@@ -197,7 +203,7 @@ export default async function CoursePage({
           <div className="w-full h-full bg-gradient-to-r from-zinc-900 via-zinc-800 to-zinc-950" />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-zinc-950/80 via-zinc-900/30 to-transparent flex items-end">
-          <div className="max-w-5xl w-full mx-auto px-6 pb-8">
+          <div className="max-w-5xl w-full mx-auto px-4 sm:px-6 pb-6 sm:pb-8">
             <Link
               href="/"
               className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-300 hover:text-white transition-colors mb-3"
@@ -205,13 +211,13 @@ export default async function CoursePage({
               <ChevronLeft className="w-4 h-4" />
               Cursos
             </Link>
-            <h1 className="text-white text-3xl sm:text-4xl font-black tracking-tight">{course.nombre}</h1>
+            <h1 className="text-white text-2xl sm:text-4xl font-black tracking-tight">{course.nombre}</h1>
           </div>
         </div>
       </div>
 
       {/* Sessions Content */}
-      <main className="max-w-5xl mx-auto px-6 py-10 space-y-12">
+      <main className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-10 space-y-8 sm:space-y-12">
         {/* Actividades en clase */}
         <section>
           <div className="flex items-center justify-between mb-4 pb-2 border-b border-zinc-200">

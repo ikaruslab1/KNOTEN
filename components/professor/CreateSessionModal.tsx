@@ -8,40 +8,76 @@ import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type SessionType = 'clase' | 'repaso'
+export type SessionType = 'clase' | 'repaso'
+
+export type SessionToEdit = {
+  id: string
+  nombre: string
+  tipo: SessionType
+  fecha_liberacion: string | null
+  activitiesCount: number
+}
 
 type Props = {
   isOpen: boolean
   onClose: () => void
   cursoId: string
+  tipo: SessionType
+  sessionToEdit?: SessionToEdit | null
+}
+
+function formatIsoForDateTimeInput(iso?: string | null): string {
+  if (!iso) return ''
+  try {
+    const d = new Date(iso)
+    const pad = (n: number) => n.toString().padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const mm = pad(d.getMonth() + 1)
+    const dd = pad(d.getDate())
+    const hh = pad(d.getHours())
+    const min = pad(d.getMinutes())
+    return `${yyyy}-${mm}-${dd}T${hh}:${min}`
+  } catch {
+    return ''
+  }
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) {
+export default function CreateSessionModal({
+  isOpen,
+  onClose,
+  cursoId,
+  tipo,
+  sessionToEdit,
+}: Props) {
   const router = useRouter()
   const supabase = createClient()
   const dialogRef = useRef<HTMLDialogElement>(null)
 
+  const isEditing = !!sessionToEdit
+
   const [nombre, setNombre] = useState('')
-  const [tipo, setTipo] = useState<SessionType>('clase')
-  const [numClase, setNumClase] = useState(3)
-  const [numRepaso, setNumRepaso] = useState(2)
+  const [numActividades, setNumActividades] = useState(3)
   const [fechaLiberacion, setFechaLiberacion] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Reset form when opening
+  // Sync / reset form values when opening
   useEffect(() => {
     if (isOpen) {
-      setNombre('')
-      setTipo('clase')
-      setNumClase(3)
-      setNumRepaso(2)
-      setFechaLiberacion('')
+      if (sessionToEdit) {
+        setNombre(sessionToEdit.nombre)
+        setNumActividades(Math.max(1, sessionToEdit.activitiesCount))
+        setFechaLiberacion(formatIsoForDateTimeInput(sessionToEdit.fecha_liberacion))
+      } else {
+        setNombre('')
+        setNumActividades(3)
+        setFechaLiberacion('')
+      }
       setError(null)
     }
-  }, [isOpen])
+  }, [isOpen, sessionToEdit])
 
   // Open/close native <dialog>
   useEffect(() => {
@@ -76,44 +112,85 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
       setError('El nombre de la sesión es obligatorio.')
       return
     }
-    if (numClase < 1) {
-      setError('La sesión debe tener al menos 1 actividad de clase.')
+    if (numActividades < 1) {
+      setError('La sesión debe tener al menos 1 actividad.')
       return
     }
 
     setSaving(true)
 
     try {
-      // 1. INSERT the session ──────────────────────────────────────────────────
-      const { data: newSession, error: sessionError } = await supabase
-        .from('sessions')
-        .insert({
-          curso_id: cursoId,
-          nombre: nombre.trim(),
-          tipo,
-          fecha_liberacion: fechaLiberacion || null,
-        })
-        .select('id')
-        .single()
+      if (isEditing && sessionToEdit) {
+        // ── EDIT EXISTING SESSION ─────────────────────────────────────────────
+        const sessionId = sessionToEdit.id
 
-      if (sessionError || !newSession) throw sessionError ?? new Error('Error creando sesión.')
+        // 1. Update session info
+        const { error: updateSessionErr } = await supabase
+          .from('sessions')
+          .update({
+            nombre: nombre.trim(),
+            fecha_liberacion: tipo === 'clase' ? (fechaLiberacion ? new Date(fechaLiberacion).toISOString() : null) : null,
+          })
+          .eq('id', sessionId)
 
-      const sessionId = newSession.id
+        if (updateSessionErr) throw updateSessionErr
 
-      // 2. Build activity rows ─────────────────────────────────────────────────
-      const totalActividades = numClase + numRepaso
-      const activityRows = Array.from({ length: totalActividades }, (_, i) => ({
-        session_id: sessionId,
-        titulo: `Actividad ${i + 1}`,
-        orden: i,
-      }))
+        // 2. Adjust activities count
+        const currentCount = sessionToEdit.activitiesCount
+        const targetCount = numActividades
 
-      if (activityRows.length > 0) {
-        const { error: activitiesError } = await supabase
-          .from('activities')
-          .insert(activityRows)
+        if (targetCount > currentCount) {
+          // Add extra activities
+          const toAdd = targetCount - currentCount
+          const newRows = Array.from({ length: toAdd }, (_, i) => ({
+            session_id: sessionId,
+            titulo: `Actividad ${currentCount + i + 1}`,
+            orden: currentCount + i,
+          }))
 
-        if (activitiesError) throw activitiesError
+          const { error: insertErr } = await supabase.from('activities').insert(newRows)
+          if (insertErr) throw insertErr
+        } else if (targetCount < currentCount) {
+          // Delete excess activities with orden >= targetCount
+          const { error: deleteErr } = await supabase
+            .from('activities')
+            .delete()
+            .eq('session_id', sessionId)
+            .gte('orden', targetCount)
+
+          if (deleteErr) throw deleteErr
+        }
+      } else {
+        // ── CREATE NEW SESSION ────────────────────────────────────────────────
+        const { data: newSession, error: sessionError } = await supabase
+          .from('sessions')
+          .insert({
+            curso_id: cursoId,
+            nombre: nombre.trim(),
+            tipo,
+            fecha_liberacion: tipo === 'clase' ? (fechaLiberacion ? new Date(fechaLiberacion).toISOString() : null) : null,
+          })
+          .select('id')
+          .single()
+
+        if (sessionError || !newSession) throw sessionError ?? new Error('Error creando sesión.')
+
+        const sessionId = newSession.id
+
+        // Create initial activities
+        const activityRows = Array.from({ length: numActividades }, (_, i) => ({
+          session_id: sessionId,
+          titulo: `Actividad ${i + 1}`,
+          orden: i,
+        }))
+
+        if (activityRows.length > 0) {
+          const { error: activitiesError } = await supabase
+            .from('activities')
+            .insert(activityRows)
+
+          if (activitiesError) throw activitiesError
+        }
       }
 
       router.refresh()
@@ -134,12 +211,18 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
       className="w-full max-w-lg rounded-2xl bg-white p-0 shadow-2xl backdrop:bg-black/50 open:animate-in open:fade-in-0 open:zoom-in-95"
     >
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-gray-100 px-6 py-4">
-        <h2 className="text-lg font-semibold text-gray-900">Nueva sesión</h2>
+      <div className="flex items-center justify-between border-b border-zinc-100 px-6 py-4">
+        <h2 className="text-lg font-bold text-zinc-900">
+          {isEditing
+            ? 'Editar sesión'
+            : tipo === 'clase'
+            ? 'Nueva sesión en clase'
+            : 'Nueva sesión de repaso'}
+        </h2>
         <button
           type="button"
           onClick={onClose}
-          className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          className="rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-600 cursor-pointer"
           aria-label="Cerrar"
         >
           <X className="h-5 w-5" />
@@ -150,7 +233,7 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
       <form onSubmit={handleSubmit} className="flex flex-col gap-5 px-6 py-5">
         {/* Nombre */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="session-nombre" className="text-sm font-medium text-gray-700">
+          <label htmlFor="session-nombre" className="text-sm font-medium text-zinc-700">
             Nombre de la sesión <span className="text-red-500">*</span>
           </label>
           <input
@@ -159,89 +242,66 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
             required
             value={nombre}
             onChange={(e) => setNombre(e.target.value)}
-            placeholder="Ej. Sesión 1 – Condicionales"
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            placeholder={tipo === 'clase' ? 'Ej. Sesión 1 – Condicionales' : 'Ej. Repaso 1 – Variables'}
+            className="rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
         </div>
 
-        {/* Tipo */}
+        {/* Número de actividades */}
         <div className="flex flex-col gap-1.5">
-          <label htmlFor="session-tipo" className="text-sm font-medium text-gray-700">
-            Tipo de sesión
-          </label>
-          <select
-            id="session-tipo"
-            value={tipo}
-            onChange={(e) => setTipo(e.target.value as SessionType)}
-            className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-          >
-            <option value="clase">En clase</option>
-            <option value="repaso">Repaso</option>
-          </select>
-        </div>
-
-        {/* Actividades counts */}
-        <div className="grid grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="session-num-clase" className="text-sm font-medium text-gray-700">
-              Actividades de clase <span className="text-red-500">*</span>
-            </label>
-            <input
-              id="session-num-clase"
-              type="number"
-              min={1}
-              required
-              value={numClase}
-              onChange={(e) => setNumClase(Number(e.target.value))}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="session-num-repaso" className="text-sm font-medium text-gray-700">
-              Actividades de repaso
-            </label>
-            <input
-              id="session-num-repaso"
-              type="number"
-              min={0}
-              value={numRepaso}
-              onChange={(e) => setNumRepaso(Number(e.target.value))}
-              className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
-            />
-          </div>
-        </div>
-
-        {/* Total preview */}
-        <p className="text-xs text-gray-500">
-          Se crearán <strong>{numClase + numRepaso}</strong> actividades en total.
-        </p>
-
-        {/* Fecha de liberación */}
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor="session-fecha" className="text-sm font-medium text-gray-700">
-            Fecha de liberación{' '}
-            <span className="font-normal text-gray-400">(opcional)</span>
+          <label htmlFor="session-num-actividades" className="text-sm font-medium text-zinc-700">
+            Número de actividades <span className="text-red-500">*</span>
           </label>
           <input
-            id="session-fecha"
-            type="datetime-local"
-            value={fechaLiberacion}
-            onChange={(e) => setFechaLiberacion(e.target.value)}
-            className="rounded-lg border border-zinc-300 px-3 py-2 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
+            id="session-num-actividades"
+            type="number"
+            min={1}
+            max={30}
+            required
+            value={numActividades}
+            onChange={(e) => setNumActividades(Math.max(1, Number(e.target.value)))}
+            className="rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
           />
+          <p className="text-xs text-zinc-500">
+            {isEditing
+              ? `Actividades configuradas: ${numActividades} (se ${numActividades >= (sessionToEdit?.activitiesCount ?? 0) ? 'agregarán' : 'eliminarán'} actividades automáticamente si modificas este valor).`
+              : `Se crearán ${numActividades} actividades para esta sesión.`}
+          </p>
         </div>
+
+        {/* Fecha de liberación (solo para sesiones de clase) */}
+        {tipo === 'clase' && (
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="session-fecha" className="text-sm font-medium text-zinc-700">
+              Fecha de liberación{' '}
+              <span className="font-normal text-zinc-400">(opcional para programar)</span>
+            </label>
+            <input
+              id="session-fecha"
+              type="datetime-local"
+              value={fechaLiberacion}
+              onChange={(e) => setFechaLiberacion(e.target.value)}
+              className="rounded-xl border border-zinc-300 px-3.5 py-2.5 text-sm text-zinc-900 outline-none transition focus:border-zinc-900 focus:ring-2 focus:ring-zinc-900/15"
+            />
+            <p className="text-xs text-zinc-400">
+              Si se establece en una fecha futura, el contenido estará bloqueado para los alumnos hasta ese momento.
+            </p>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>
+          <p className="rounded-xl bg-red-50 px-3.5 py-2 text-sm text-red-600 border border-red-200">
+            {error}
+          </p>
         )}
 
         {/* Actions */}
-        <div className="flex justify-end gap-3 pt-1">
+        <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition hover:bg-gray-50"
+            className="rounded-xl border border-zinc-200 px-4 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 cursor-pointer"
           >
             Cancelar
           </button>
@@ -249,12 +309,18 @@ export default function CreateSessionModal({ isOpen, onClose, cursoId }: Props) 
             type="submit"
             disabled={saving}
             className={cn(
-              'flex items-center gap-2 rounded-lg bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition',
+              'flex items-center gap-2 rounded-xl bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition shadow-sm cursor-pointer',
               saving ? 'opacity-70 cursor-not-allowed' : 'hover:bg-zinc-800',
             )}
           >
             {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {saving ? 'Creando…' : 'Crear sesión'}
+            {saving
+              ? isEditing
+                ? 'Guardando…'
+                : 'Creando…'
+              : isEditing
+              ? 'Guardar cambios'
+              : 'Crear sesión'}
           </button>
         </div>
       </form>

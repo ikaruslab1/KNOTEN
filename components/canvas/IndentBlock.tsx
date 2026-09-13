@@ -1,6 +1,7 @@
 'use client'
 import { memo, useState, useEffect } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
+import { LayoutTemplate, Plus, Minus } from 'lucide-react'
 
 export type IndentBlockData = {
   rows?: number
@@ -8,7 +9,10 @@ export type IndentBlockData = {
   readOnly?: boolean
 }
 
-const ROW_HEIGHT = 48
+// Exactly matching LineRailNode's vertical dimensions (36px header, 64px per row, 36px footer)
+const ROW_HEIGHT = 64
+const HEADER_HEIGHT = 36
+const FOOTER_HEIGHT = 36
 
 const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
   const [rows, setRows] = useState<number>(data?.rows ?? 1)
@@ -37,79 +41,94 @@ const IndentBlock = memo(({ id, data }: NodeProps<IndentBlockData>) => {
 
   return (
     <div
-      className="relative rounded-xl border-2 border-zinc-400 bg-zinc-200/95 shadow-sm select-none"
-      style={{ width: 220, minHeight: totalHeight + 40, height: totalHeight + 40 }}
+      className="relative rounded-2xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[115px] transition-all"
+      style={{ height: totalHeight + HEADER_HEIGHT + FOOTER_HEIGHT }}
     >
-      {/* Row dividers + handles */}
-      {Array.from({ length: rows }).map((_, i) => (
-        <div
-          key={i}
-          className="relative flex items-center justify-between px-3"
-          style={{ height: ROW_HEIGHT }}
-        >
-          {i > 0 && (
-            <div className="absolute top-0 left-2 right-2 h-px bg-zinc-300" />
-          )}
-
-          <Handle
-            type="target"
-            position={Position.Left}
-            id={`left-${i}`}
-            style={{
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: 12,
-              height: 12,
-              background: '#9CA3AF',
-              border: '2px solid #fff',
-              borderRadius: '50%',
-            }}
-          />
-
-          <span className="text-[11px] font-mono text-zinc-500 font-semibold select-none pl-1">
-            nivel {i + 1}
+      {/* Header (36px - matches LineRailNode header) */}
+      <div className="h-[36px] flex items-center justify-between px-2.5 border-b border-zinc-300 bg-zinc-300/40 rounded-t-2xl">
+        <div className="flex items-center gap-1 text-zinc-700">
+          <LayoutTemplate className="w-3.5 h-3.5 text-zinc-600" />
+          <span className="text-[11px] font-bold tracking-wider uppercase font-mono">
+            Indent
           </span>
-
-          <Handle
-            type="source"
-            position={Position.Right}
-            id={`right-${i}`}
-            style={{
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: 12,
-              height: 12,
-              background: '#9CA3AF',
-              border: '2px solid #fff',
-              borderRadius: '50%',
-            }}
-          />
         </div>
-      ))}
+        <span className="text-[10px] font-mono text-zinc-500 font-medium">
+          1..{rows}
+        </span>
+      </div>
 
-      {/* Bottom controls */}
-      <div className="absolute bottom-1.5 left-0 right-0 flex items-center justify-center gap-2">
-        {rows > 1 && !data?.readOnly && (
-          <button
-            type="button"
-            onClick={removeRow}
-            className="w-6 h-6 rounded-full bg-zinc-400 hover:bg-zinc-500 text-white text-base font-bold flex items-center justify-center leading-none transition-colors shadow-xs"
-            title="Quitar nivel"
+      {/* Row dividers + handles (each 64px - matches LineRailNode row) */}
+      <div className="relative">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div
+            key={i}
+            className="relative flex items-center justify-between px-2"
+            style={{ height: ROW_HEIGHT }}
           >
-            {String.fromCharCode(8722)}
-          </button>
-        )}
-        {!data?.readOnly && (
+            {i > 0 && (
+              <div className="absolute top-0 left-2 right-2 h-px bg-zinc-300" />
+            )}
+
+            <Handle
+              type="target"
+              position={Position.Left}
+              id={`left-${i}`}
+              style={{
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 12,
+                height: 12,
+                background: '#71717a',
+                border: '2px solid #ffffff',
+                borderRadius: '50%',
+              }}
+            />
+
+            <span className="text-[11px] font-mono text-zinc-600 font-semibold select-none text-center w-full">
+              nivel {i + 1}
+            </span>
+
+            <Handle
+              type="source"
+              position={Position.Right}
+              id={`right-${i}`}
+              style={{
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 12,
+                height: 12,
+                background: '#71717a',
+                border: '2px solid #ffffff',
+                borderRadius: '50%',
+              }}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Bottom controls (36px - matches LineRailNode footer) */}
+      {!data?.readOnly && (
+        <div className="h-[36px] absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2">
+          {rows > 1 && (
+            <button
+              type="button"
+              onClick={removeRow}
+              className="w-5 h-5 rounded-md bg-zinc-300 hover:bg-zinc-400 text-zinc-800 text-xs font-bold flex items-center justify-center transition"
+              title="Quitar nivel"
+            >
+              <Minus className="w-3 h-3" />
+            </button>
+          )}
           <button
             type="button"
             onClick={addRow}
-            className="w-6 h-6 rounded-full bg-zinc-700 hover:bg-zinc-800 text-white text-base font-bold flex items-center justify-center leading-none transition-colors shadow-xs"
+            className="w-5 h-5 rounded-md bg-zinc-800 hover:bg-zinc-900 text-white text-xs font-bold flex items-center justify-center transition"
             title="Agregar nivel"
           >
-            +
+            <Plus className="w-3 h-3" />
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 })

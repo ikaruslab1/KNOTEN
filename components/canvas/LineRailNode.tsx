@@ -10,8 +10,10 @@ export type LineRailData = {
   readOnly?: boolean
 }
 
-// 90px matches the vertical distance between lines of code (Y_GAP in code-splitter)
-const ROW_HEIGHT = 90
+// 64px row height matches standard Python code block vertical distribution
+export const RAIL_ROW_HEIGHT = 64
+export const RAIL_HEADER_HEIGHT = 36
+export const RAIL_FOOTER_HEIGHT = 36
 
 const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
   const [lines, setLines] = useState<number>(data?.lines ?? 1)
@@ -36,15 +38,15 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
     setTimeout(() => updateNodeInternals(id), 10)
   }
 
-  const totalHeight = lines * ROW_HEIGHT
+  const totalHeight = lines * RAIL_ROW_HEIGHT
 
   return (
     <div
-      className="relative rounded-2xl border border-zinc-300 bg-white/95 shadow-md backdrop-blur-xs select-none min-w-[130px] transition-all"
-      style={{ height: totalHeight + 48 }}
+      className="relative rounded-2xl border border-zinc-300 bg-white/95 shadow-md backdrop-blur-xs select-none w-[130px] transition-all"
+      style={{ height: totalHeight + RAIL_HEADER_HEIGHT + RAIL_FOOTER_HEIGHT }}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-200 bg-zinc-50 rounded-t-2xl">
+      {/* Header (36px) */}
+      <div className="h-[36px] flex items-center justify-between px-3 border-b border-zinc-200 bg-zinc-50 rounded-t-2xl">
         <div className="flex items-center gap-1.5 text-zinc-700">
           <Hash className="w-3.5 h-3.5 text-zinc-500" />
           <span className="text-[11px] font-bold tracking-wider uppercase font-mono">
@@ -56,7 +58,7 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
         </span>
       </div>
 
-      {/* Rows of lines */}
+      {/* Rows of lines (each 64px) */}
       <div className="relative">
         {Array.from({ length: lines }).map((_, i) => {
           const lineNum = i + 1
@@ -64,7 +66,7 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
             <div
               key={lineNum}
               className="relative flex items-center justify-between px-3"
-              style={{ height: ROW_HEIGHT }}
+              style={{ height: RAIL_ROW_HEIGHT }}
             >
               {/* Divider between lines */}
               {i > 0 && (
@@ -72,18 +74,18 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
               )}
 
               {/* Left side: line number badge */}
-              <div className="flex items-center gap-2">
-                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-zinc-900 font-mono text-xs font-bold text-white shadow-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-900 font-mono text-[11px] font-bold text-white shadow-xs">
                   {lineNum}
                 </span>
-                <span className="text-[10px] font-mono text-zinc-400 hidden sm:inline">
+                <span className="text-[10px] font-mono text-zinc-400">
                   línea
                 </span>
               </div>
 
               {/* Right side: arrow indicator and connection handle */}
-              <div className="relative flex items-center pr-2">
-                <ArrowRight className="w-4 h-4 text-zinc-400" />
+              <div className="relative flex items-center pr-1">
+                <ArrowRight className="w-3.5 h-3.5 text-zinc-400 mr-0.5" />
                 <Handle
                   type="source"
                   position={Position.Right}
@@ -104,9 +106,9 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
         })}
       </div>
 
-      {/* Bottom controls to add/remove lines */}
+      {/* Bottom controls (36px) */}
       {!data?.readOnly && (
-        <div className="absolute bottom-1.5 left-0 right-0 flex items-center justify-center gap-2">
+        <div className="h-[36px] absolute bottom-0 left-0 right-0 flex items-center justify-center gap-2">
           {lines > 1 && (
             <button
               type="button"

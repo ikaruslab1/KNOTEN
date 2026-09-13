@@ -142,7 +142,7 @@ export function getDefaultPositions(
 ): { x: number; y: number }[] {
   const START_X = 220
   const START_Y = 100
-  const Y_GAP = 90
+  const Y_GAP = 64
   const X_INDENT = 48
   const TOKEN_MARGIN = 24
 
@@ -165,7 +165,7 @@ export function getDefaultPositions(
     const textLen = (block.contenido ?? '').length
     const estimatedWidth =
       block.tipo === 'indentacion'
-        ? 200
+        ? 115
         : Math.max(60, textLen * 9 + 32)
 
     currentX += estimatedWidth + TOKEN_MARGIN
