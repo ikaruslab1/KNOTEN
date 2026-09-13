@@ -1,11 +1,10 @@
 'use client'
 
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowUp,
-  ArrowDown,
+  GripVertical,
   ChevronRight,
   ChevronLeft,
   Loader2,
@@ -128,6 +127,111 @@ function reconstructPythonCode(savedBlocks: SplitBlock[]): string {
     .join('\n')
 }
 
+// ─── Helper: detect eliminated/missing characters from original tokens ────────
+
+function findMissingCodeElements(
+  originalTokens: string[],
+  currentBlockContents: string[]
+): string[] {
+  const remainingBlocks = [...currentBlockContents]
+  const unmatchedTokens: string[] = []
+
+  for (const token of originalTokens) {
+    // 1. Exact match with an entire block
+    const exactIdx = remainingBlocks.indexOf(token)
+    if (exactIdx !== -1) {
+      remainingBlocks.splice(exactIdx, 1)
+      continue
+    }
+
+    // 2. Exact substring within any block
+    const substrIdx = remainingBlocks.findIndex((b) => b.includes(token))
+    if (substrIdx !== -1) {
+      continue
+    }
+
+    unmatchedTokens.push(token)
+  }
+
+  if (unmatchedTokens.length === 0) return []
+
+  const missingPieces: string[] = []
+
+  for (const token of unmatchedTokens) {
+    const covered = new Array(token.length).fill(false)
+
+    for (const block of currentBlockContents) {
+      if (!block) continue
+
+      // If token is completely inside block
+      if (block.includes(token)) {
+        covered.fill(true)
+        break
+      }
+
+      // If block is a substring inside token
+      if (token.includes(block)) {
+        let start = token.indexOf(block)
+        while (start !== -1) {
+          for (let i = start; i < start + block.length; i++) {
+            covered[i] = true
+          }
+          start = token.indexOf(block, start + 1)
+        }
+        continue
+      }
+
+      // Significant common prefix (>= 3 chars)
+      let commonPrefixLen = 0
+      while (
+        commonPrefixLen < token.length &&
+        commonPrefixLen < block.length &&
+        token[commonPrefixLen] === block[commonPrefixLen]
+      ) {
+        commonPrefixLen++
+      }
+      if (commonPrefixLen >= 3) {
+        for (let i = 0; i < commonPrefixLen; i++) {
+          covered[i] = true
+        }
+      }
+
+      // Significant common suffix (>= 3 chars)
+      let commonSuffixLen = 0
+      while (
+        commonSuffixLen < token.length &&
+        commonSuffixLen < block.length &&
+        token[token.length - 1 - commonSuffixLen] === block[block.length - 1 - commonSuffixLen]
+      ) {
+        commonSuffixLen++
+      }
+      if (commonSuffixLen >= 3) {
+        for (let i = token.length - commonSuffixLen; i < token.length; i++) {
+          covered[i] = true
+        }
+      }
+    }
+
+    // Extract contiguous uncovered segments
+    let segStart = -1
+    for (let i = 0; i <= token.length; i++) {
+      if (i < token.length && !covered[i]) {
+        if (segStart === -1) segStart = i
+      } else {
+        if (segStart !== -1) {
+          const missingSeg = token.substring(segStart, i)
+          if (missingSeg.length > 0) {
+            missingPieces.push(missingSeg)
+          }
+          segStart = -1
+        }
+      }
+    }
+  }
+
+  return missingPieces
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function ActivityBuilder({ activityId, initialActivity, initialBlocks = [] }: Props) {
@@ -148,6 +252,21 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
   )
   const [toast, setToast] = useState<ToastState>('idle')
   const [toastMsg, setToastMsg] = useState('')
+  const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null)
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  const handleReorder = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return
+    setBlocks((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(fromIndex, 1)
+      next.splice(toIndex, 0, moved)
+      return next.map((b, i) => ({ ...b, orden_correcto: i }))
+    })
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }, [])
 
   // Sync state if activityId or props change (e.g. clicking chip navigation)
   useEffect(() => {
@@ -231,6 +350,39 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
     })
   }, [])
 
+  const handleInsertBlock = useCallback(
+    (
+      insertIndex: number,
+      tipo: 'codigo' | 'indentacion',
+      initialContent: string = ''
+    ) => {
+      setBlocks((prev) => {
+        const prevNeighbor = prev[insertIndex - 1]
+        const nextNeighbor = prev[insertIndex]
+        const nextLine = prevNeighbor
+          ? (prevNeighbor.line_index ?? 0)
+          : (nextNeighbor?.line_index ?? 0)
+        const nextIndent = prevNeighbor
+          ? (prevNeighbor.indent_level ?? 0)
+          : (nextNeighbor?.indent_level ?? 0)
+
+        const newBlock: SplitBlock = {
+          tipo,
+          contenido: initialContent,
+          orden_correcto: insertIndex,
+          indent_level: nextIndent,
+          line_index: nextLine,
+        }
+
+        const next = [...prev]
+        next.splice(insertIndex, 0, newBlock)
+        return next.map((b, i) => ({ ...b, orden_correcto: i }))
+      })
+      setActiveInsertIndex(null)
+    },
+    []
+  )
+
   const handleAddBlock = useCallback(
     (tipo: 'codigo' | 'indentacion', initialContent: string = '') => {
       setBlocks((prev) => {
@@ -270,34 +422,14 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
     return tokens
   }, [code])
 
-  const currentTokens = useMemo(() => {
-    const tokens: string[] = []
-    for (const block of blocks) {
-      if (block.tipo === 'codigo' && block.contenido) {
-        const bTokens = tokenizeLine(block.contenido)
-        tokens.push(...bTokens)
-      }
-    }
-    return tokens
-  }, [blocks])
-
   const missingTokens = useMemo(() => {
-    const currentCounts = new Map<string, number>()
-    for (const t of currentTokens) {
-      currentCounts.set(t, (currentCounts.get(t) || 0) + 1)
-    }
+    if (originalTokens.length === 0) return []
+    const currentContents = blocks
+      .filter((b) => b.tipo === 'codigo' && b.contenido !== undefined)
+      .map((b) => b.contenido)
 
-    const missing: string[] = []
-    for (const t of originalTokens) {
-      const count = currentCounts.get(t) || 0
-      if (count > 0) {
-        currentCounts.set(t, count - 1)
-      } else {
-        missing.push(t)
-      }
-    }
-    return missing
-  }, [originalTokens, currentTokens])
+    return findMissingCodeElements(originalTokens, currentContents)
+  }, [originalTokens, blocks])
 
   const originalIndentCount = useMemo(() => {
     return splitPythonCode(code).filter((b) => b.tipo === 'indentacion').length
@@ -474,10 +606,10 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
                 <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-bold text-amber-900">
-                    Elementos del código original que eliminaste y faltan por reescribir
+                    Elementos o caracteres del código original que faltan por reescribir
                   </h3>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    Eliminaste bloques del código y los siguientes elementos aún no aparecen en ningún bloque. Puedes escribirlos dentro de otro bloque o hacer clic para agregarlos:
+                    Eliminaste o modificaste bloques y los siguientes caracteres aún no han sido escritos en ningún bloque. Puedes escribirlos dentro de otro bloque o hacer clic para agregarlos:
                   </p>
 
                   {missingTokens.length > 0 && (
@@ -522,17 +654,45 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
           )}
 
           {/* List of blocks */}
-          <div className="flex flex-col gap-2">
-            {blocks.map((block, index) => (
-              <BlockCard
-                key={`${index}-${block.orden_correcto}`}
-                block={block}
-                index={index}
-                total={blocks.length}
-                onMove={moveBlock}
-                onEdit={handleEditBlock}
-                onDelete={handleDeleteBlock}
+          <div className="flex flex-col gap-1">
+            {blocks.length > 0 && (
+              <InsertBlockDivider
+                index={0}
+                activeInsertIndex={activeInsertIndex}
+                setActiveInsertIndex={setActiveInsertIndex}
+                onInsert={handleInsertBlock}
               />
+            )}
+            {blocks.map((block, index) => (
+              <Fragment key={`${index}-${block.orden_correcto}`}>
+                <BlockCard
+                  block={block}
+                  index={index}
+                  total={blocks.length}
+                  onMove={moveBlock}
+                  onEdit={handleEditBlock}
+                  onDelete={handleDeleteBlock}
+                  onDragStart={(idx) => setDraggedIndex(idx)}
+                  onDragOver={(idx) => setDragOverIndex(idx)}
+                  onDragEnd={() => {
+                    setDraggedIndex(null)
+                    setDragOverIndex(null)
+                  }}
+                  onDrop={(targetIdx) => {
+                    if (draggedIndex !== null) {
+                      handleReorder(draggedIndex, targetIdx)
+                    }
+                  }}
+                  isDragging={draggedIndex === index}
+                  isDragOver={dragOverIndex === index && draggedIndex !== index}
+                />
+                <InsertBlockDivider
+                  index={index + 1}
+                  activeInsertIndex={activeInsertIndex}
+                  setActiveInsertIndex={setActiveInsertIndex}
+                  onInsert={handleInsertBlock}
+                />
+              </Fragment>
             ))}
           </div>
 
@@ -789,13 +949,111 @@ function StepIndicator({
   )
 }
 
+// ─── Insert Block Divider ───────────────────────────────────────────────────
+
+type InsertBlockDividerProps = {
+  index: number
+  activeInsertIndex: number | null
+  setActiveInsertIndex: (index: number | null) => void
+  onInsert: (index: number, tipo: 'codigo' | 'indentacion', initialContent?: string) => void
+}
+
+function InsertBlockDivider({
+  index,
+  activeInsertIndex,
+  setActiveInsertIndex,
+  onInsert,
+}: InsertBlockDividerProps) {
+  const isOpen = activeInsertIndex === index
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setActiveInsertIndex(null)
+      }
+    }
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setActiveInsertIndex(null)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [isOpen, setActiveInsertIndex])
+
+  if (isOpen) {
+    return (
+      <div
+        ref={menuRef}
+        className="relative z-10 flex items-center justify-center gap-2 py-1.5 animate-in fade-in zoom-in-95 duration-150"
+      >
+        <div className="h-px bg-zinc-300 flex-1" />
+        <div className="inline-flex items-center gap-1.5 bg-white border border-zinc-300 rounded-xl p-1.5 shadow-md">
+          <span className="text-[11px] font-semibold text-zinc-500 pl-2 pr-1 select-none">
+            Insertar en #{index + 1}:
+          </span>
+          <button
+            type="button"
+            onClick={() => onInsert(index, 'codigo')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-white text-xs font-semibold shadow-xs transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Bloque de código
+          </button>
+          <button
+            type="button"
+            onClick={() => onInsert(index, 'indentacion')}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-zinc-200 text-zinc-800 text-xs font-semibold transition cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Indentación
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveInsertIndex(null)}
+            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 transition cursor-pointer ml-0.5"
+            title="Cancelar"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="h-px bg-zinc-300 flex-1" />
+      </div>
+    )
+  }
+
+  return (
+    <div className="group/insert relative flex items-center justify-center py-1 -my-0.5 transition-all">
+      <div className="h-px bg-transparent group-hover/insert:bg-zinc-200 flex-1 transition-colors duration-150" />
+      <button
+        type="button"
+        onClick={() => setActiveInsertIndex(isOpen ? null : index)}
+        className="mx-2 inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border border-dashed border-zinc-300 bg-white text-zinc-400 hover:text-zinc-900 hover:border-zinc-400 hover:bg-zinc-50 hover:shadow-2xs text-[11px] font-medium transition-all cursor-pointer opacity-70 hover:opacity-100 group-hover/insert:opacity-100 group-hover/insert:border-zinc-400"
+        title={`Insertar bloque en la posición ${index + 1}`}
+      >
+        <Plus className="w-3 h-3 text-zinc-500 group-hover/insert:text-zinc-900" />
+        <span className="text-[11px] text-zinc-500 group-hover/insert:text-zinc-800">
+          Insertar
+        </span>
+      </button>
+      <div className="h-px bg-transparent group-hover/insert:bg-zinc-200 flex-1 transition-colors duration-150" />
+    </div>
+  )
+}
+
 // ─── Block Card ───────────────────────────────────────────────────────────────
 
 type BlockCardProps = {
   block: SplitBlock
   index: number
   total: number
-  onMove: (index: number, direction: 'up' | 'down') => void
+  onMove?: (index: number, direction: 'up' | 'down') => void
   onEdit: (
     index: number,
     newContent: string,
@@ -803,6 +1061,12 @@ type BlockCardProps = {
     newIndentLevel?: number
   ) => void
   onDelete: (index: number) => void
+  onDragStart?: (index: number) => void
+  onDragOver?: (index: number, e: React.DragEvent) => void
+  onDragEnd?: () => void
+  onDrop?: (index: number) => void
+  isDragging?: boolean
+  isDragOver?: boolean
 }
 
 function BlockCard({
@@ -812,6 +1076,12 @@ function BlockCard({
   onMove,
   onEdit,
   onDelete,
+  onDragStart,
+  onDragOver,
+  onDragEnd,
+  onDrop,
+  isDragging,
+  isDragOver,
 }: BlockCardProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [draftContent, setDraftContent] = useState(block.contenido)
@@ -849,11 +1119,33 @@ function BlockCard({
 
   return (
     <div
+      draggable={!isEditing}
+      onDragStart={(e) => {
+        if (isEditing) return
+        e.dataTransfer.setData('text/plain', String(index))
+        e.dataTransfer.effectAllowed = 'move'
+        onDragStart?.(index)
+      }}
+      onDragOver={(e) => {
+        if (isEditing) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        onDragOver?.(index, e)
+      }}
+      onDragEnd={() => {
+        onDragEnd?.()
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        onDrop?.(index)
+      }}
       className={cn(
-        'group flex items-start gap-3 rounded-xl border p-3 shadow-xs transition-all duration-150',
+        'group flex items-start gap-3 rounded-xl border p-3 shadow-xs transition-all duration-150 select-none',
+        isDragging && 'opacity-40 border-dashed border-zinc-400 bg-zinc-100/60',
+        isDragOver && !isDragging && 'border-zinc-900 ring-2 ring-zinc-900/20 bg-zinc-50 shadow-md scale-[1.01]',
         isEditing
-          ? 'border-zinc-900 bg-zinc-50/50 ring-2 ring-zinc-900/10'
-          : 'border-zinc-200 bg-white hover:border-zinc-300'
+          ? 'border-zinc-900 bg-zinc-50/50 ring-2 ring-zinc-900/10 cursor-default'
+          : !isDragOver && !isDragging && 'border-zinc-200 bg-white hover:border-zinc-300'
       )}
     >
       {/* Number badge */}
@@ -978,7 +1270,11 @@ function BlockCard({
           </div>
         ) : (
           <div className="flex items-center justify-between">
-            <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-900 leading-relaxed font-medium bg-zinc-50/60 rounded px-2 py-1 max-w-full">
+            <pre
+              onClick={() => setIsEditing(true)}
+              className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-900 leading-relaxed font-medium bg-zinc-50/60 hover:bg-zinc-100/80 rounded px-2 py-1 max-w-full cursor-pointer transition"
+              title="Haz clic para editar"
+            >
               {block.contenido || (
                 <span className="italic text-zinc-400 font-normal">
                   (bloque vacío)
@@ -1014,26 +1310,12 @@ function BlockCard({
 
           <div className="w-px h-4 bg-zinc-200 mx-0.5" />
 
-          {/* Reorder arrows */}
-          <div className="flex flex-col gap-0.5">
-            <button
-              type="button"
-              onClick={() => onMove(index, 'up')}
-              disabled={index === 0}
-              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
-              title="Subir bloque"
-            >
-              <ArrowUp className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onMove(index, 'down')}
-              disabled={index === total - 1}
-              className="rounded p-1 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-800 disabled:opacity-25 disabled:pointer-events-none cursor-pointer"
-              title="Bajar bloque"
-            >
-              <ArrowDown className="h-3.5 w-3.5" />
-            </button>
+          {/* Drag handle */}
+          <div
+            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition cursor-grab active:cursor-grabbing"
+            title="Arrastra para cambiar de lugar el bloque"
+          >
+            <GripVertical className="h-4 w-4" />
           </div>
         </div>
       )}
