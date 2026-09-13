@@ -237,18 +237,32 @@ export default function Toolbar({
     <>
       <div
         className={cn(
-          'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex items-center gap-1 sm:gap-2 px-2.5 sm:px-4 py-1.5 sm:py-2 transition-all duration-300 transform select-none',
+          'fixed z-50 bg-white/95 backdrop-blur-md rounded-2xl shadow-xl border border-gray-200 flex flex-col sm:flex-row items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2 transition-all duration-300 transform select-none',
           // Desktop (xl: >= 1280px): horizontally on the right at the top
           'xl:top-4 xl:bottom-auto xl:right-4 xl:left-auto xl:translate-x-0 xl:animate-slide-down-fade',
           // Mobile: floating bottom center; Tablet (sm:): floating bottom right
-          'bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 max-w-[calc(100vw-20px)]',
+          'bottom-4 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0 w-[calc(100vw-24px)] max-w-sm sm:w-auto sm:max-w-none',
           // Mobile & Tablet folded state vs expanded slide up
           isMobileFolded
-            ? 'translate-y-28 opacity-0 pointer-events-none xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto'
+            ? 'translate-y-36 opacity-0 pointer-events-none xl:translate-y-0 xl:opacity-100 xl:pointer-events-auto'
             : 'animate-slide-up-fade xl:animate-slide-down-fade'
         )}
       >
-        {/* Center */}
+        {/* Mobile handle indicator */}
+        {onToggleMobileFold && (
+          <button
+            type="button"
+            onClick={onToggleMobileFold}
+            className="sm:hidden w-full flex justify-center py-0.5 -mt-1 -mb-0.5 text-zinc-300 hover:text-zinc-500 cursor-pointer"
+            title="Plegar barra de herramientas"
+          >
+            <div className="w-8 h-1 rounded-full bg-zinc-200 hover:bg-zinc-300 transition-colors" />
+          </button>
+        )}
+
+        {/* Tier 1: Creation & Alignment Tools */}
+        <div className="flex items-center justify-around sm:justify-start gap-1 w-full sm:w-auto">
+          {/* Center */}
         <IconBtn onClick={onCenter} title="Volver al centro">
           <Crosshair size={17} />
         </IconBtn>
@@ -262,7 +276,7 @@ export default function Toolbar({
             <div
               className={cn(
                 "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-2xl p-3 w-[295px] sm:w-[335px] max-h-[400px] sm:max-h-[460px] overflow-y-auto animate-in fade-in zoom-in-95 duration-150 flex flex-col gap-2.5",
-                "bottom-18 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0",
+                "bottom-28 left-1/2 -translate-x-1/2 sm:bottom-18 sm:left-auto sm:right-4 sm:translate-x-0",
                 "xl:bottom-auto xl:top-16 xl:right-4 xl:left-auto xl:translate-x-0"
               )}
             >
@@ -391,7 +405,7 @@ export default function Toolbar({
               <div
                 className={cn(
                   "fixed z-[60] bg-white/98 backdrop-blur-md border border-zinc-200 rounded-2xl shadow-xl p-2 flex flex-col gap-1 min-w-[200px] animate-in fade-in zoom-in-95 duration-150",
-                  "bottom-18 left-1/2 -translate-x-1/2 sm:left-auto sm:right-4 sm:translate-x-0",
+                  "bottom-28 left-1/2 -translate-x-1/2 sm:bottom-18 sm:left-auto sm:right-4 sm:translate-x-0",
                   "xl:bottom-auto xl:top-16 xl:right-4 xl:left-auto xl:translate-x-0"
                 )}
               >
@@ -453,48 +467,61 @@ export default function Toolbar({
           </div>
         )}
 
-        <Divider />
+        </div>
 
-        {/* Execute button */}
-        <button
-          onClick={onExecute}
-          disabled={!canExecute}
-          title="Ejecutar"
-          className={cn(
-            'flex items-center gap-1.5 bg-zinc-900 text-white rounded-xl px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium transition-all hover:bg-zinc-800 active:bg-black shrink-0 shadow-xs',
-            !canExecute && 'opacity-40 cursor-not-allowed',
-          )}
-        >
-          <PlayCircle size={15} />
-          <span>Ejecutar</span>
-        </button>
+        {/* Separator between tiers: vertical on tablet/desktop, horizontal on mobile */}
+        <div className="hidden sm:block">
+          <Divider />
+        </div>
+        <div className="sm:hidden w-full h-px bg-gray-100 my-0.5" />
 
-        <Divider />
+        {/* Tier 2: Execution, Problem, Attempts & Fold */}
+        <div className="flex items-center justify-between sm:justify-start gap-1.5 sm:gap-2 w-full sm:w-auto">
+          {/* Execute button */}
+          <button
+            onClick={onExecute}
+            disabled={!canExecute}
+            title="Ejecutar"
+            className={cn(
+              'flex items-center gap-1.5 bg-zinc-900 text-white rounded-xl px-3 sm:px-4 py-1.5 text-xs sm:text-sm font-medium transition-all hover:bg-zinc-800 active:bg-black shrink-0 shadow-xs cursor-pointer',
+              !canExecute && 'opacity-40 cursor-not-allowed',
+            )}
+          >
+            <PlayCircle size={15} />
+            <span>Ejecutar</span>
+          </button>
 
-        {/* Attempts */}
-        <span className="text-[11px] sm:text-xs text-gray-400 whitespace-nowrap px-0.5">
-          {attempts} int.
-        </span>
+          {/* Right-aligned cluster on mobile / inline on tablet & desktop */}
+          <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
+            {/* Attempts */}
+            <span className="text-[11px] sm:text-xs text-gray-400 whitespace-nowrap px-1">
+              {attempts} int.
+            </span>
 
-        {/* Problem modal trigger */}
-        <IconBtn onClick={onShowProblem} title="Ver problema">
-          <BookOpen size={17} />
-        </IconBtn>
+            {/* Problem modal trigger */}
+            <IconBtn onClick={onShowProblem} title="Ver problema">
+              <BookOpen size={17} />
+            </IconBtn>
 
-        {/* Mobile / Tablet Fold Button */}
-        {onToggleMobileFold && (
-          <>
-            <Divider />
-            <button
-              type="button"
-              onClick={onToggleMobileFold}
-              className="xl:hidden flex items-center justify-center w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-zinc-400 hover:text-zinc-800 hover:bg-zinc-100 transition shrink-0 cursor-pointer"
-              title="Plegar barra de herramientas"
-            >
-              <ChevronDown size={17} />
-            </button>
-          </>
-        )}
+            {/* Mobile / Tablet Fold Button */}
+            {onToggleMobileFold && (
+              <>
+                <div className="hidden sm:block">
+                  <Divider />
+                </div>
+                <button
+                  type="button"
+                  onClick={onToggleMobileFold}
+                  className="xl:hidden flex items-center gap-1 px-2.5 py-1.5 sm:px-0 sm:py-0 sm:w-8 sm:h-8 justify-center rounded-lg text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200/80 transition shrink-0 cursor-pointer bg-zinc-100/90 sm:bg-transparent border border-zinc-200/70 sm:border-0"
+                  title="Plegar barra de herramientas"
+                >
+                  <ChevronDown size={17} />
+                  <span className="text-[11px] font-semibold sm:hidden">Ocultar</span>
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Floating trigger pill when mobile/tablet toolbar is folded */}
