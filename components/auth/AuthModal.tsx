@@ -14,6 +14,7 @@ import {
   Code2,
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { saveOfflineSession } from '@/lib/offline/auth-session'
 import { cn } from '@/lib/utils'
 
 export type AuthTab = 'login' | 'register'
@@ -162,7 +163,19 @@ export default function AuthModal({
         return
       }
 
-      if (data.session) {
+      if (data.session && data.user) {
+        // Fetch profile to persist offline
+        let profileData: any = null
+        try {
+          const { data: prof } = await supabase
+            .from('profiles')
+            .select('id, nombre, apellido_paterno, apellido_materno, rol, correo_personal')
+            .eq('id', data.user.id)
+            .maybeSingle()
+          profileData = prof
+        } catch {}
+
+        saveOfflineSession(data.user, profileData || {})
         handleClose()
         window.location.reload()
       }
@@ -215,6 +228,20 @@ export default function AuthModal({
         setRegisterError(error.message || 'Error al crear la cuenta.')
         setRegisterLoading(false)
         return
+      }
+
+      if (data.user) {
+        saveOfflineSession(data.user, {
+          id: data.user.id,
+          nombre: registerData.nombre.trim(),
+          apellido_paterno: registerData.apellido_paterno.trim(),
+          apellido_materno: registerData.apellido_materno.trim(),
+          rol: 'estudiante',
+          correo_personal: registerData.correo_personal.trim(),
+          grupo: registerData.grupo.trim(),
+          semestre: registerData.semestre.trim(),
+          carrera: registerData.carrera.trim(),
+        })
       }
 
       // Send welcome email

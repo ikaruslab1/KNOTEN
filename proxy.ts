@@ -1,5 +1,6 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import { decodeUserFromCookies } from '@/lib/supabase/cookie-auth-helper'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -48,16 +49,34 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  // Refresh session
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Refresh session safely (handles offline network failures gracefully)
+  let user = null
+  try {
+    const { data, error } = await supabase.auth.getUser()
+    if (data && data.user && !error) {
+      user = data.user
+    }
+  } catch (err) {
+    // Supabase cloud unreachable (offline)
+  }
+
+  // Offline fallback: decode user from cookies
+  if (!user && hasAuthCookie) {
+    user = (decodeUserFromCookies(allCookies) as any) ?? null
+  }
 
   // Protected: /profesor/*
-  if (pathname.startsWith('/profesor') && !user) {
-    const redirectUrl = request.nextUrl.clone()
-    redirectUrl.pathname = '/'
-    return NextResponse.redirect(redirectUrl)
+  if (pathname.startsWith('/profesor')) {
+    const isProf =
+      user?.user_metadata?.rol === 'profesor' ||
+      user?.role === 'profesor' ||
+      user?.app_metadata?.rol === 'profesor'
+
+    if (!user) {
+      const redirectUrl = request.nextUrl.clone()
+      redirectUrl.pathname = '/'
+      return NextResponse.redirect(redirectUrl)
+    }
   }
 
   return supabaseResponse

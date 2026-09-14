@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v3'
+const CACHE_NAME = 'knoten-cache-v4'
 
 const PRECACHE_ASSETS = [
   '/',
@@ -60,7 +60,14 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Ignore non-GET requests or non-http protocols
+  // Ignore non-GET requests or non-http protocols (except offline signout)
+  if (url.pathname === '/api/auth/signout') {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      event.respondWith(Response.redirect('/', 303))
+      return
+    }
+  }
+
   if (request.method !== 'GET' || !url.protocol.startsWith('http')) {
     return
   }

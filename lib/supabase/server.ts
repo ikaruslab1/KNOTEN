@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { cache } from 'react'
+import { decodeUserFromCookies } from './cookie-auth-helper'
 
 export async function createClient() {
   const cookieStore = await cookies()
@@ -31,6 +32,7 @@ export async function createClient() {
 /**
  * Cached per request: fast-path cookie check + memoized user retrieval.
  * Eliminates duplicate network calls across NavBar, layouts, and pages.
+ * Includes offline fallback to decode JWT from cookies when network is unavailable.
  */
 export const getCurrentUser = cache(async () => {
   const cookieStore = await cookies()
@@ -40,11 +42,20 @@ export const getCurrentUser = cache(async () => {
   )
   if (!hasAuthCookie) return null
 
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  return user ?? null
+  try {
+    const supabase = await createClient()
+    const {
+      data: { user },
+      error,
+    } = await supabase.auth.getUser()
+    if (user && !error) return user
+  } catch (err) {
+    // Supabase cloud server unreachable (offline / no internet)
+  }
+
+  // Offline fallback: decode user claims directly from cookies
+  const decoded = decodeUserFromCookies(allCookies)
+  return (decoded as any) ?? null
 })
 
 export type CachedProfile = {
@@ -58,17 +69,33 @@ export type CachedProfile = {
 
 /**
  * Cached per request: memoized profile retrieval.
+ * If cloud database is offline, reconstructs profile from user metadata.
  */
 export const getCurrentProfile = cache(async (): Promise<CachedProfile | null> => {
   const user = await getCurrentUser()
   if (!user) return null
 
-  const supabase = await createClient()
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('id, nombre, apellido_paterno, apellido_materno, rol, correo_personal')
-    .eq('id', user.id)
-    .maybeSingle()
+  try {
+    const supabase = await createClient()
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id, nombre, apellido_paterno, apellido_materno, rol, correo_personal')
+      .eq('id', user.id)
+      .maybeSingle()
 
-  return profile ?? null
+    if (profile) return profile
+  } catch (err) {
+    // Database unreachable offline
+  }
+
+  // Offline fallback: reconstruct profile from user metadata saved at registration/login
+  const meta = (user as any).user_metadata || {}
+  return {
+    id: user.id,
+    nombre: meta.nombre || 'Usuario',
+    apellido_paterno: meta.apellido_paterno || '',
+    apellido_materno: meta.apellido_materno ?? null,
+    rol: meta.rol || 'estudiante',
+    correo_personal: meta.correo_personal || user.email || '',
+  }
 })

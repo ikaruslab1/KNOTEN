@@ -6,7 +6,7 @@
 
 const DB_NAME = 'knoten_offline_db'
 const DB_VERSION = 1
-export const OFFLINE_CACHE_NAME = 'knoten-cache-v3'
+export const OFFLINE_CACHE_NAME = 'knoten-cache-v4'
 
 export interface OfflineCourse {
   id: string

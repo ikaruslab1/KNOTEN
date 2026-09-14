@@ -1,10 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, Calendar, ArrowRight } from 'lucide-react'
 import OfflineSessionBadge from '@/components/pwa/OfflineSessionBadge'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/components/auth/AuthProvider'
+import { getOfflineSessionsByCourse, getOfflineActivitiesBySession } from '@/lib/offline/db'
 
 interface Activity {
   id: string
@@ -51,8 +53,55 @@ export default function CourseSessionsView({
   const [isTransitioning, setIsTransitioning] = useState(false)
   const router = useRouter()
 
-  const sortedClase = [...claseSessions].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
-  const sortedRepaso = [...repasoSessions].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+  const { profile: authProfile } = useAuth()
+  const effectiveIsProfessor = isProfessor || authProfile?.rol === 'profesor'
+
+  const [localClase, setLocalClase] = useState<SessionItem[]>(claseSessions)
+  const [localRepaso, setLocalRepaso] = useState<SessionItem[]>(repasoSessions)
+
+  useEffect(() => {
+    let isMounted = true
+    async function checkIndexedDB() {
+      if ((claseSessions.length > 0 || repasoSessions.length > 0) && courseId) return
+      if (!courseId) return
+      try {
+        const offSessions = await getOfflineSessionsByCourse(courseId)
+        if (!offSessions || offSessions.length === 0 || !isMounted) return
+
+        const fullSessions: SessionItem[] = await Promise.all(
+          offSessions.map(async (s) => {
+            const acts = await getOfflineActivitiesBySession(s.id)
+            return {
+              id: s.id,
+              nombre: s.nombre,
+              tipo: s.tipo,
+              orden: s.orden ?? 0,
+              fecha_liberacion: s.fecha_liberacion,
+              activities: acts.map((a) => ({ id: a.id, orden: a.orden })),
+            }
+          })
+        )
+
+        if (isMounted) {
+          setLocalClase(fullSessions.filter((s) => s.tipo === 'clase'))
+          setLocalRepaso(fullSessions.filter((s) => s.tipo === 'repaso'))
+        }
+      } catch (e) {
+        console.warn('Could not load sessions from IndexedDB:', e)
+      }
+    }
+
+    setLocalClase(claseSessions)
+    setLocalRepaso(repasoSessions)
+    checkIndexedDB()
+
+    return () => {
+      isMounted = false
+    }
+  }, [courseId, claseSessions, repasoSessions])
+
+  const sortedClase = [...localClase].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+  const sortedRepaso = [...localRepaso].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
 
   const handleSessionClick = (session: SessionItem, href: string, isLocked: boolean) => {
     if (isLocked) return
@@ -70,7 +119,7 @@ export default function CourseSessionsView({
 
   const renderSessionCard = (session: SessionItem, index: number) => {
     const locked = isInFuture(session.fecha_liberacion)
-    const isLockedForUser = locked && !isProfessor
+    const isLockedForUser = locked && !effectiveIsProfessor
     const sortedActivities = [...(session.activities || [])].sort(
       (a, b) => (a.orden ?? 0) - (b.orden ?? 0)
     )
@@ -99,7 +148,7 @@ export default function CourseSessionsView({
             </span>
           </div>
           <p className="text-xs text-zinc-400 mt-4">
-            {isProfessor
+            {effectiveIsProfessor
               ? 'Aún no hay actividades creadas en esta sesión.'
               : 'Próximamente disponible.'}
           </p>
@@ -131,7 +180,7 @@ export default function CourseSessionsView({
       )
     }
 
-    if (locked && isProfessor) {
+    if (locked && effectiveIsProfessor) {
       return (
         <div
           key={session.id}

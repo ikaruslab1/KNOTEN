@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { ToastProvider } from '@/components/ui/ToastProvider'
+import { AuthProvider } from '@/components/auth/AuthProvider'
 import PWAProvider from '@/components/pwa/PWAProvider'
 
 export const metadata: Metadata = {
@@ -38,11 +39,13 @@ export default function RootLayout({
         <meta name="apple-mobile-web-app-title" content="Knoten" />
       </head>
       <body className="antialiased">
-        <ToastProvider>
-          <PWAProvider>
-            {children}
-          </PWAProvider>
-        </ToastProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <PWAProvider>
+              {children}
+            </PWAProvider>
+          </ToastProvider>
+        </AuthProvider>
       </body>
     </html>
   )

@@ -33,14 +33,14 @@ import CodeBlock from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
 import LineRailNode from "./LineRailNode"
-import RectangleNode from "./RectangleNode"
+import RectangleNode, { RectangleSpecialEffect } from "./RectangleNode"
 import Toolbar, { StickerItem } from "./Toolbar"
 import ElasticConnectionLine from "./ElasticConnectionLine"
 import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
-import { evaluatePythonJS, compareExecutionResults } from "@/lib/python-evaluator-js"
+import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput } from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -445,43 +445,127 @@ const BLOCK_COLOR_MAP: Record<string, { border: string; bg: string }> = {
   'excepcion': { border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' },
 }
 
-function getStickerEffect(sticker: Node): { type: 'rainbow' } | { type: 'block'; border: string; bg: string } | null {
+export type StickerEffectResult = {
+  isRainbow?: boolean
+  specialEffect?: RectangleSpecialEffect | null
+  border: string | null
+  bg: string | null
+}
+
+function getStickerEffect(sticker: Node): StickerEffectResult | null {
   const data = sticker.data || {}
-
-  // 1. Check gay flag sticker (pride)
-  if (
-    data.id === 'pride' ||
-    data.emoji === '🏳️‍🌈' ||
-    data.label?.toLowerCase()?.includes('bandera gay')
-  ) {
-    return { type: 'rainbow' }
-  }
-
-  // 2. Reject non-block categories strictly (e.g. emotes and datos)
-  if (data.category && data.category !== 'bloques') {
-    return null
-  }
-
-  // 3. Match block sticker by ID or text
   const idKey = typeof data.id === 'string' ? data.id.toLowerCase() : ''
+  const emoji = typeof data.emoji === 'string' ? data.emoji : ''
+  const label = typeof data.label === 'string' ? data.label.toLowerCase() : ''
   const textKey = typeof data.text === 'string' ? data.text.toLowerCase().trim() : ''
 
+  // 1. Bandera gay (pride) -> rainbow animation
+  if (
+    idKey === 'pride' ||
+    emoji === '🏳️‍🌈' ||
+    label.includes('bandera gay')
+  ) {
+    return { isRainbow: true, specialEffect: 'rainbow', border: null, bg: null }
+  }
+
+  // 2. Correcto (check) -> contorno verde y fondo 8%
+  if (
+    idKey === 'check' ||
+    emoji === '✔️' ||
+    emoji === '✅' ||
+    label.includes('correcto')
+  ) {
+    return { isRainbow: false, specialEffect: 'correct', border: '#22c55e', bg: 'rgba(34, 197, 94, 0.08)' }
+  }
+
+  // 3. Incorrecto (cross) -> contorno rojo y fondo 8%
+  if (
+    idKey === 'cross' ||
+    emoji === '❌' ||
+    label.includes('error') ||
+    label.includes('incorrecto')
+  ) {
+    return { isRainbow: false, specialEffect: 'incorrect', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' }
+  }
+
+  // 4. Pregunta (question) -> contorno amarillo y fondo 8%
+  if (
+    idKey === 'question' ||
+    emoji === '❔' ||
+    emoji === '❓' ||
+    label.includes('pregunta')
+  ) {
+    return { isRainbow: false, specialEffect: 'question', border: '#eab308', bg: 'rgba(234, 179, 8, 0.08)' }
+  }
+
+  // 5. Peligro (danger) -> contorno amarillo parpadeante + partículas radiactivas
+  if (
+    idKey === 'danger' ||
+    emoji === '☣️' ||
+    emoji === '⚠️' ||
+    label.includes('peligro')
+  ) {
+    return { isRainbow: false, specialEffect: 'danger', border: '#facc15', bg: 'rgba(234, 179, 8, 0.08)' }
+  }
+
+  // 6. Corazón (heart / love) -> contorno rosa y fondo 8% + partículas de corazones
+  if (
+    idKey === 'heart' ||
+    idKey === 'love' ||
+    emoji === '❤️' ||
+    emoji === '🥰' ||
+    label.includes('coraz') ||
+    label.includes('bonita')
+  ) {
+    return { isRainbow: false, specialEffect: 'heart', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' }
+  }
+
+  // 7. Calavera (skull) -> contorno gris oscuro y fondo 8% + moscas en bucle
+  if (
+    idKey === 'skull' ||
+    emoji === '💀' ||
+    label.includes('calavera') ||
+    label.includes('calabara')
+  ) {
+    return { isRainbow: false, specialEffect: 'skull', border: '#52525b', bg: 'rgba(82, 82, 91, 0.08)' }
+  }
+
+  // 8. Dinosaurio (dino) -> contorno rojo y fondo 8% + animación de fuego
+  if (
+    idKey === 'dino' ||
+    emoji === '🦖' ||
+    label.includes('godzilla') ||
+    label.includes('dino')
+  ) {
+    return { isRainbow: false, specialEffect: 'dino', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' }
+  }
+
+  // 9. Mono (monkey) -> contorno café y fondo 8% + contorno con pelos
+  if (
+    idKey === 'monkey' ||
+    emoji === '🐵' ||
+    label.includes('mono')
+  ) {
+    return { isRainbow: false, specialEffect: 'monkey', border: '#854d0e', bg: 'rgba(133, 77, 14, 0.08)' }
+  }
+
+  // 10. Bloques de código (categoría bloques)
   if (BLOCK_COLOR_MAP[idKey]) {
-    return { type: 'block', ...BLOCK_COLOR_MAP[idKey] }
+    return { isRainbow: false, specialEffect: null, border: BLOCK_COLOR_MAP[idKey].border, bg: BLOCK_COLOR_MAP[idKey].bg }
   }
   if (BLOCK_COLOR_MAP[textKey]) {
-    return { type: 'block', ...BLOCK_COLOR_MAP[textKey] }
+    return { isRainbow: false, specialEffect: null, border: BLOCK_COLOR_MAP[textKey].border, bg: BLOCK_COLOR_MAP[textKey].bg }
   }
 
   if (typeof data.borderClass === 'string') {
-    if (data.borderClass.includes('red')) return { type: 'block', border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' }
-    if (data.borderClass.includes('pink')) return { type: 'block', border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' }
-    if (data.borderClass.includes('emerald')) return { type: 'block', border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' }
-    if (data.borderClass.includes('purple')) return { type: 'block', border: '#a855f7', bg: 'rgba(168, 85, 247, 0.08)' }
-    if (data.borderClass.includes('amber')) return { type: 'block', border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' }
-    if (data.borderClass.includes('blue')) return { type: 'block', border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' }
-    if (data.borderClass.includes('zinc')) return { type: 'block', border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' }
-    if (data.borderClass.includes('orange')) return { type: 'block', border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' }
+    if (data.borderClass.includes('red')) return { isRainbow: false, specialEffect: null, border: '#ef4444', bg: 'rgba(239, 68, 68, 0.08)' }
+    if (data.borderClass.includes('pink')) return { isRainbow: false, specialEffect: null, border: '#ec4899', bg: 'rgba(236, 72, 153, 0.08)' }
+    if (data.borderClass.includes('emerald')) return { isRainbow: false, specialEffect: null, border: '#10b981', bg: 'rgba(16, 185, 129, 0.08)' }
+    if (data.borderClass.includes('purple')) return { isRainbow: false, specialEffect: null, border: '#a855f7', bg: 'rgba(168, 85, 247, 0.08)' }
+    if (data.borderClass.includes('amber')) return { isRainbow: false, specialEffect: null, border: '#f59e0b', bg: 'rgba(245, 158, 11, 0.08)' }
+    if (data.borderClass.includes('blue')) return { isRainbow: false, specialEffect: null, border: '#3b82f6', bg: 'rgba(59, 130, 246, 0.08)' }
+    if (data.borderClass.includes('zinc')) return { isRainbow: false, specialEffect: null, border: '#71717a', bg: 'rgba(113, 113, 122, 0.08)' }
+    if (data.borderClass.includes('orange')) return { isRainbow: false, specialEffect: null, border: '#f97316', bg: 'rgba(249, 115, 22, 0.08)' }
   }
 
   return null
@@ -676,6 +760,7 @@ function FlowCanvasInner({
       const rBottom = rY + rDim.height
 
       let isRainbow = false
+      let specialEffect: RectangleSpecialEffect | null = null
       let activeColor: string | null = null
       let activeBg: string | null = null
 
@@ -690,30 +775,44 @@ function FlowCanvasInner({
 
         if (collides) {
           const effect = getStickerEffect(sticker)
-          if (effect?.type === 'rainbow') {
-            isRainbow = true
-            break // rainbow has highest precedence!
-          } else if (effect?.type === 'block') {
-            activeColor = effect.border
-            activeBg = effect.bg
+          if (effect) {
+            if (effect.isRainbow) {
+              isRainbow = true
+              specialEffect = 'rainbow'
+              activeColor = null
+              activeBg = null
+              break // rainbow has highest precedence!
+            } else {
+              specialEffect = effect.specialEffect || null
+              activeColor = effect.border
+              activeBg = effect.bg
+            }
           }
         }
       }
 
       const currRainbow = Boolean(node.data?.isRainbow)
+      const currEffect = node.data?.specialEffect || null
       const currBorder = node.data?.activeBorderColor || null
       const currBg = node.data?.activeBgColor || null
 
       const nextBorder = isRainbow ? null : activeColor
       const nextBg = isRainbow ? null : activeBg
+      const nextEffect = isRainbow ? 'rainbow' : specialEffect
 
-      if (currRainbow !== isRainbow || currBorder !== nextBorder || currBg !== nextBg) {
+      if (
+        currRainbow !== isRainbow ||
+        currEffect !== nextEffect ||
+        currBorder !== nextBorder ||
+        currBg !== nextBg
+      ) {
         hasChanges = true
         return {
           ...node,
           data: {
             ...node.data,
             isRainbow,
+            specialEffect: nextEffect,
             activeBorderColor: nextBorder,
             activeBgColor: nextBg,
           },
@@ -1208,6 +1307,7 @@ function FlowCanvasInner({
         width: 260,
         height: 180,
         isRainbow: false,
+        specialEffect: null,
         activeBorderColor: null,
         activeBgColor: null,
       },
@@ -1547,7 +1647,20 @@ function FlowCanvasInner({
       const studentResult = evaluatePythonJS(reconstructedCode)
       const comp = compareExecutionResults(refResult, studentResult)
 
-      const isOfflineSuccess = comp.isSuccess || codeMatches || orderMatches || connMatches
+      const expectedOutput = (resultadoEsperado || "").trim()
+      const stuStdout = (studentResult.stdout ?? "").trim()
+      const matchesExpected =
+        studentResult.success &&
+        expectedOutput.length > 0 &&
+        (stuStdout === expectedOutput ||
+          stuStdout.replace(/\s+/g, "") === expectedOutput.replace(/\s+/g, "") ||
+          normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
+          (studentResult.state &&
+            Object.entries(studentResult.state).some(
+              ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
+            )))
+
+      const isOfflineSuccess = comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
 
       if (isOfflineSuccess) {
         setTerminalStatus("success")

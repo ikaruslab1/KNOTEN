@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
 import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
-import { executePythonCode, compareExecutionResults } from '@/lib/python-executor'
+import { executePythonCode, compareExecutionResults, normalizeTypeOutput } from '@/lib/python-executor'
 import { reconstructCodeFromBlocks } from '@/lib/code-reconstructor'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -206,6 +206,7 @@ export async function POST(request: NextRequest) {
       expectedOutput.length > 0 &&
       (stuStdout === expectedOutput ||
         stuStdout.replace(/\s+/g, '') === expectedOutput.replace(/\s+/g, '') ||
+        normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
         (studentResult.state &&
           Object.entries(studentResult.state).some(
             ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput

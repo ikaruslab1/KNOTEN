@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import FlowCanvas, { Block, BlockConnection } from './FlowCanvas'
 import { getOfflineActivity, getOfflineActivitiesBySession, saveActivity } from '@/lib/offline/db'
+import { getStoredOfflineSession } from '@/lib/offline/auth-session'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, AlertCircle, RefreshCw, Home } from 'lucide-react'
 import Link from 'next/link'
@@ -40,34 +41,25 @@ export default function ActivityView({
     let isMounted = true
 
     async function resolveActivity() {
-      // 1. If initialActivity is provided and matches activityId (or activityId is generic), use it immediately!
-      if (initialActivity && (initialActivity.id === activityId || !activityId || activityId === 'actividad-shell')) {
-        if (isMounted) {
-          setData(initialActivity)
-          setIsLoading(false)
-          setErrorMsg(null)
-        }
-        return
-      }
-
-      // 2. Determine active activity ID safely (avoid picking up previous page's pathname like /curso/[id])
-      let targetId = activityId
-      if (!targetId || targetId === 'actividad-shell' || targetId === 'offline') {
-        if (typeof window !== 'undefined') {
-          const segments = window.location.pathname.split('/').filter(Boolean)
-          const actIdx = segments.indexOf('actividad')
-          if (actIdx !== -1 && segments[actIdx + 1]) {
-            targetId = segments[actIdx + 1]
-          }
+      // 1. Determine active activity ID from window pathname if available
+      let pathActivityId = ''
+      if (typeof window !== 'undefined') {
+        const segments = window.location.pathname.split('/').filter(Boolean)
+        const actIdx = segments.indexOf('actividad')
+        if (actIdx !== -1 && segments[actIdx + 1]) {
+          pathActivityId = segments[actIdx + 1]
         }
       }
 
-      if (!targetId && initialActivity) {
-        targetId = initialActivity.id
-      }
+      const targetId = pathActivityId || activityId || initialActivity?.id || ''
 
-      // If initialActivity matches targetId, use it!
-      if (initialActivity && initialActivity.id === targetId) {
+      // 2. If initialActivity matches the exact target ID and is not a generic shell, use it!
+      if (
+        initialActivity &&
+        initialActivity.id === targetId &&
+        targetId !== 'actividad-shell' &&
+        targetId !== 'offline'
+      ) {
         if (isMounted) {
           setData(initialActivity)
           setIsLoading(false)
@@ -193,17 +185,23 @@ export default function ActivityView({
             }
           } catch {}
 
-          // Load progress
+          // Load progress safely (supports offline mode)
           let initialCompletedMap: Record<string, boolean> = {}
           try {
-            const {
-              data: { user },
-            } = await supabase.auth.getUser()
-            if (user && sessionActivities.length > 0) {
+            const stored = getStoredOfflineSession()
+            let userId = stored?.user?.id
+            if (!userId && (typeof navigator === 'undefined' || navigator.onLine)) {
+              const {
+                data: { session },
+              } = await supabase.auth.getSession()
+              userId = session?.user?.id
+            }
+
+            if (userId && sessionActivities.length > 0 && (typeof navigator === 'undefined' || navigator.onLine)) {
               const { data: progressRows } = await supabase
                 .from('progress')
                 .select('activity_id, completado')
-                .eq('student_id', user.id)
+                .eq('student_id', userId)
                 .in('activity_id', sessionActivities.map((a) => a.id))
 
               if (progressRows) {
@@ -211,6 +209,15 @@ export default function ActivityView({
                   if (p.completado) initialCompletedMap[p.activity_id] = true
                 }
               }
+            }
+          } catch {}
+
+          // Merge with localStorage completed activities
+          try {
+            const raw = localStorage.getItem('knoten_completed_activities')
+            if (raw) {
+              const localMap = JSON.parse(raw)
+              initialCompletedMap = { ...initialCompletedMap, ...localMap }
             }
           } catch {}
 

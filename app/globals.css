@@ -437,4 +437,223 @@ body {
   z-index: 10 !important;
 }
 
+/* ─── Animated Rectangle Effects for Emote Stickers ──────────────────────────── */
+
+/* 1. Peligro: Contorno amarillo parpadeante y partículas radiactivas */
+@keyframes dangerBlink {
+  0%, 100% {
+    border-color: #facc15;
+    box-shadow: 0 0 14px rgba(250, 204, 21, 0.6), inset 0 0 8px rgba(250, 204, 21, 0.2);
+    opacity: 1;
+  }
+  50% {
+    border-color: #ca8a04;
+    box-shadow: 0 0 3px rgba(202, 138, 4, 0.2), inset 0 0 2px rgba(202, 138, 4, 0.05);
+    opacity: 0.45;
+  }
+}
+
+.danger-rectangle-border {
+  border: 2.5px solid #facc15;
+  animation: dangerBlink 0.9s ease-in-out infinite;
+}
+
+@keyframes radioactivePulse {
+  0% {
+    transform: translate(0, 0) scale(0.5);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.95;
+    transform: translate(var(--rx, 0px), -12px) scale(1.15);
+  }
+  75% {
+    opacity: 0.75;
+    transform: translate(calc(var(--rx, 0px) * 1.6), -32px) scale(0.9);
+  }
+  100% {
+    transform: translate(calc(var(--rx, 0px) * 2.2), -52px) scale(0.2);
+    opacity: 0;
+  }
+}
+
+.radioactive-particle {
+  animation: radioactivePulse var(--dur, 2.2s) ease-out infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform, opacity;
+}
+
+/* 2. Corazón: Partículas de corazones flotantes ("enamorado") */
+@keyframes heartFloatUp {
+  0% {
+    transform: translateY(0) translateX(0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.95;
+    transform: translateY(-10px) translateX(var(--sway, 6px)) scale(1) rotate(var(--rot, 6deg));
+  }
+  70% {
+    opacity: 0.85;
+    transform: translateY(-42px) translateX(calc(var(--sway, 6px) * -1)) scale(1.1) rotate(calc(var(--rot, 6deg) * -1));
+  }
+  100% {
+    transform: translateY(-75px) translateX(calc(var(--sway, 6px) * 0.5)) scale(0.4) rotate(var(--rot, 6deg));
+    opacity: 0;
+  }
+}
+
+.heart-particle {
+  animation: heartFloatUp var(--dur, 2.8s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform, opacity;
+}
+
+/* 3. Calavera: Moscas zumbando en bucle */
+@keyframes flyBuzzLoop1 {
+  0% {
+    transform: translate(0px, 0px) rotate(0deg);
+  }
+  20% {
+    transform: translate(32px, -20px) rotate(45deg);
+  }
+  40% {
+    transform: translate(55px, 12px) rotate(-35deg);
+  }
+  60% {
+    transform: translate(20px, 35px) rotate(115deg);
+  }
+  80% {
+    transform: translate(-14px, 15px) rotate(70deg);
+  }
+  100% {
+    transform: translate(0px, 0px) rotate(0deg);
+  }
+}
+
+@keyframes flyBuzzLoop2 {
+  0% {
+    transform: translate(0px, 0px) rotate(180deg);
+  }
+  25% {
+    transform: translate(-38px, -24px) rotate(90deg);
+  }
+  50% {
+    transform: translate(-18px, 28px) rotate(-45deg);
+  }
+  75% {
+    transform: translate(26px, -14px) rotate(140deg);
+  }
+  100% {
+    transform: translate(0px, 0px) rotate(180deg);
+  }
+}
+
+@keyframes flyBuzzLoop3 {
+  0% {
+    transform: translate(0px, 0px) rotate(90deg);
+  }
+  25% {
+    transform: translate(22px, 30px) rotate(180deg);
+  }
+  50% {
+    transform: translate(-26px, 18px) rotate(270deg);
+  }
+  75% {
+    transform: translate(-15px, -25px) rotate(340deg);
+  }
+  100% {
+    transform: translate(0px, 0px) rotate(90deg);
+  }
+}
+
+@keyframes flyWingVibrate {
+  0%, 100% {
+    opacity: 0.9;
+    transform: scaleY(1);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scaleY(0.3);
+  }
+}
+
+.fly-particle-1 {
+  animation: flyBuzzLoop1 var(--dur, 2.5s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform;
+}
+
+.fly-particle-2 {
+  animation: flyBuzzLoop2 var(--dur, 3s) ease-in-out infinite;
+  animation-delay: var(--delay, 0.4s);
+  will-change: transform;
+}
+
+.fly-particle-3 {
+  animation: flyBuzzLoop3 var(--dur, 2.8s) ease-in-out infinite;
+  animation-delay: var(--delay, 0.8s);
+  will-change: transform;
+}
+
+.fly-wings {
+  animation: flyWingVibrate 0.08s linear infinite;
+}
+
+/* 4. Dinosaurio: Fuego ardiente y ascuas incandescentes */
+@keyframes dinoFireGlow {
+  0%, 100% {
+    border-color: #ef4444;
+    box-shadow: 0 0 14px rgba(239, 68, 68, 0.6), 0 0 28px rgba(249, 115, 22, 0.35), inset 0 0 10px rgba(239, 68, 68, 0.2);
+  }
+  50% {
+    border-color: #f97316;
+    box-shadow: 0 0 22px rgba(249, 115, 22, 0.75), 0 0 38px rgba(234, 179, 8, 0.45), inset 0 0 16px rgba(249, 115, 22, 0.3);
+  }
+}
+
+.dino-rectangle-border {
+  border: 2.5px solid #ef4444;
+  animation: dinoFireGlow 1.3s ease-in-out infinite;
+}
+
+@keyframes emberRise {
+  0% {
+    transform: translateY(0) scale(1);
+    opacity: 0.95;
+  }
+  50% {
+    transform: translateY(-24px) translateX(var(--drift, 5px)) scale(1.25);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateY(-56px) translateX(calc(var(--drift, 5px) * -1.2)) scale(0.25);
+    opacity: 0;
+  }
+}
+
+.fire-ember {
+  animation: emberRise var(--dur, 1.8s) ease-out infinite;
+  animation-delay: var(--delay, 0s);
+  will-change: transform, opacity;
+}
+
+/* 5. Mono: Contorno con pelaje / pelos */
+@keyframes furBreeze {
+  0%, 100% {
+    transform: rotate(var(--rot, 0deg)) scale(1);
+  }
+  50% {
+    transform: rotate(calc(var(--rot, 0deg) + var(--sway, 6deg))) scale(1.08);
+  }
+}
+
+.fur-strand {
+  animation: furBreeze var(--dur, 1.6s) ease-in-out infinite;
+  animation-delay: var(--delay, 0s);
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+
 

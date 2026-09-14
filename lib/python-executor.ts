@@ -3,6 +3,7 @@ import {
   type PythonExecutionResult,
   evaluatePythonJS,
   compareExecutionResults,
+  normalizeTypeOutput,
   canonicalStringify,
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,
@@ -12,6 +13,7 @@ export type { PythonExecutionResult }
 export {
   evaluatePythonJS,
   compareExecutionResults,
+  normalizeTypeOutput,
   canonicalStringify,
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,

@@ -125,6 +125,297 @@ export function canonicalStringify(val: unknown): string {
 }
 
 /**
+ * Set of standard Python keywords, built-ins, and dunder attributes.
+ */
+export const PYTHON_BUILTINS_SET = new Set([
+  'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break',
+  'class', 'continue', 'def', 'del', 'elif', 'else', 'except', 'finally',
+  'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal',
+  'not', 'or', 'pass', 'raise', 'return', 'try', 'while', 'with', 'yield',
+  'abs', 'all', 'any', 'ascii', 'bin', 'bool', 'bytearray', 'bytes',
+  'callable', 'chr', 'classmethod', 'compile', 'complex', 'delattr', 'dict',
+  'dir', 'divmod', 'enumerate', 'eval', 'exec', 'filter', 'float', 'format',
+  'frozenset', 'getattr', 'globals', 'hasattr', 'hash', 'help', 'hex', 'id',
+  'input', 'int', 'isinstance', 'issubclass', 'iter', 'len', 'list', 'locals',
+  'map', 'max', 'memoryview', 'min', 'next', 'object', 'oct', 'open', 'ord',
+  'pow', 'print', 'property', 'range', 'repr', 'reversed', 'round', 'set',
+  'setattr', 'slice', 'sorted', 'staticmethod', 'str', 'sum', 'super',
+  'tuple', 'type', 'vars', 'zip',
+  '__name__', '__name', '__doc__', '__file__', '__class__', '__dict__'
+])
+
+/**
+ * Creates a Python-like type constructor and class object (e.g. str, int, bool, list, dict).
+ */
+export function createPyType(name: string) {
+  const fn = function (arg?: unknown) {
+    if (name === 'str') {
+      if (arg === undefined) return ''
+      if (arg === null) return 'None'
+      if (arg === true) return 'True'
+      if (arg === false) return 'False'
+      return String(arg)
+    }
+    if (name === 'int') {
+      if (arg === undefined) return 0
+      if (typeof arg === 'boolean') return arg ? 1 : 0
+      return Math.trunc(Number(arg))
+    }
+    if (name === 'float') {
+      if (arg === undefined) return 0.0
+      return Number(arg)
+    }
+    if (name === 'bool') {
+      if (arg === undefined) return false
+      return Boolean(arg)
+    }
+    if (name === 'list') {
+      if (arg === undefined) return []
+      return Array.isArray(arg) ? [...arg] : Array.from((arg as any) || [])
+    }
+    if (name === 'dict') {
+      if (arg === undefined) return {}
+      return { ...(arg as object) }
+    }
+    if (name === 'tuple') {
+      if (arg === undefined) return []
+      return Array.isArray(arg) ? [...arg] : Array.from((arg as any) || [])
+    }
+    if (name === 'set') {
+      if (arg === undefined) return new Set()
+      return new Set((arg as any) || [])
+    }
+    return arg
+  }
+
+  Object.defineProperty(fn, 'name', { value: name, configurable: true, writable: true })
+  Object.defineProperty(fn, '__name__', { value: name, configurable: true, writable: true })
+  Object.defineProperty(fn, '__name', { value: name, configurable: true, writable: true })
+  fn.toString = () => `<class '${name}'>`
+  ;(fn as any)[Symbol.toPrimitive] = (hint: string) => {
+    if (hint === 'string') return `<class '${name}'>`
+    return name
+  }
+  return fn
+}
+
+export const PyStr = createPyType('str')
+export const PyInt = createPyType('int')
+export const PyFloat = createPyType('float')
+export const PyBool = createPyType('bool')
+export const PyList = createPyType('list')
+export const PyDict = createPyType('dict')
+export const PyTuple = createPyType('tuple')
+export const PySet = createPyType('set')
+export const PyNoneType = createPyType('NoneType')
+
+/**
+ * Python-like `type(val)` function that returns class descriptors with `.__name__` and `toString()`.
+ */
+export function pyType(val: unknown) {
+  if (val === null || val === undefined) return PyNoneType
+  if (typeof val === 'string') return PyStr
+  if (typeof val === 'number') {
+    return Number.isInteger(val) ? PyInt : PyFloat
+  }
+  if (typeof val === 'boolean') return PyBool
+  if (Array.isArray(val)) return PyList
+  if (val instanceof Set) return PySet
+  if (typeof val === 'function' && ((val as any).__name__ || (val as any).name)) {
+    return createPyType('type')
+  }
+  if (typeof val === 'object') return PyDict
+  return PyStr
+}
+Object.defineProperty(pyType, '__name__', { value: 'type', configurable: true, writable: true })
+Object.defineProperty(pyType, '__name', { value: 'type', configurable: true, writable: true })
+pyType.toString = () => "<class 'type'>"
+
+/**
+ * Returns a fresh scope pre-loaded with Python standard built-in functions.
+ */
+export function getBuiltinScope(): Record<string, unknown> {
+  return {
+    type: pyType,
+    str: PyStr,
+    int: PyInt,
+    float: PyFloat,
+    bool: PyBool,
+    list: PyList,
+    dict: PyDict,
+    tuple: PyTuple,
+    set: PySet,
+    len: (val: unknown) => {
+      if (val === null || val === undefined) return 0
+      if (typeof val === 'string' || Array.isArray(val)) return val.length
+      if (typeof val === 'object') return Object.keys(val as object).length
+      return 0
+    },
+    range: (start: number, stop?: number, step = 1) => {
+      if (stop === undefined) {
+        stop = start
+        start = 0
+      }
+      const res: number[] = []
+      if (step > 0) {
+        for (let i = start; i < stop; i += step) res.push(i)
+      } else if (step < 0) {
+        for (let i = start; i > stop; i += step) res.push(i)
+      }
+      return res
+    },
+    abs: (val: unknown) => Math.abs(Number(val)),
+    round: (val: unknown, n = 0) => {
+      const f = Math.pow(10, n)
+      return Math.round(Number(val) * f) / f
+    },
+    sum: (arr: unknown[], start = 0) =>
+      Array.isArray(arr) ? arr.reduce((a: number, b: unknown) => a + Number(b), start) : start,
+    min: (...args: any[]) => {
+      const items = args.length === 1 && Array.isArray(args[0]) ? args[0] : args
+      return Math.min(...items)
+    },
+    max: (...args: any[]) => {
+      const items = args.length === 1 && Array.isArray(args[0]) ? args[0] : args
+      return Math.max(...items)
+    },
+    input: () => '',
+    isinstance: (val: unknown, targetType: unknown) => {
+      if (typeof targetType === 'function') {
+        const actualType = pyType(val)
+        return actualType === targetType || (actualType as any).__name__ === (targetType as any).__name__
+      }
+      return false
+    },
+  }
+}
+
+/**
+ * Splits comma-separated arguments at depth 0 outside quotes.
+ */
+export function splitArguments(argsStr: string): string[] {
+  const str = argsStr.trim()
+  if (!str) return []
+  const args: string[] = []
+  let current = ''
+  let parenDepth = 0
+  let bracketDepth = 0
+  let braceDepth = 0
+  let inString: string | null = null
+
+  for (let i = 0; i < str.length; i++) {
+    const ch = str[i]
+    const prev = i > 0 ? str[i - 1] : ''
+
+    if (inString) {
+      current += ch
+      if (ch === inString && prev !== '\\') inString = null
+    } else {
+      if (ch === '"' || ch === "'") {
+        inString = ch
+        current += ch
+      } else if (ch === '(') {
+        parenDepth++
+        current += ch
+      } else if (ch === ')') {
+        parenDepth = Math.max(0, parenDepth - 1)
+        current += ch
+      } else if (ch === '[') {
+        bracketDepth++
+        current += ch
+      } else if (ch === ']') {
+        bracketDepth = Math.max(0, bracketDepth - 1)
+        current += ch
+      } else if (ch === '{') {
+        braceDepth++
+        current += ch
+      } else if (ch === '}') {
+        braceDepth = Math.max(0, braceDepth - 1)
+        current += ch
+      } else if (ch === ',' && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+        args.push(current.trim())
+        current = ''
+      } else {
+        current += ch
+      }
+    }
+  }
+
+  if (current.trim()) {
+    args.push(current.trim())
+  }
+
+  return args
+}
+
+/**
+ * Formats a value as standard Python output.
+ */
+export function formatPyValue(val: unknown): string {
+  if (val === null || val === undefined) return 'None'
+  if (val === true) return 'True'
+  if (val === false) return 'False'
+  if (typeof val === 'function' && val.toString) return val.toString()
+  return String(val)
+}
+
+/**
+ * Scans code to find genuinely undefined/unbound variables (e.g. free variables in algebraic expressions).
+ * Properly ignores assigned variables, for loops, function defs, strings, and Python builtins.
+ */
+export function findUndefinedVariables(code: string): Set<string> {
+  const cleanCode = cleanPythonComments(code)
+  const lines = cleanCode.split('\n')
+
+  const stored = new Set<string>()
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (!trimmed) continue
+
+    // Assignment: var: type = ... OR var = ...
+    const assignMatch = trimmed.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=/)
+    if (assignMatch) {
+      stored.add(assignMatch[1].trim())
+    }
+
+    // Augmented assignment: var += ...
+    const augMatch = trimmed.match(/^([a-zA-Z_]\w*)\s*(?:\+=|-=|\*=|\/=|%=)=/)
+    if (augMatch) {
+      stored.add(augMatch[1].trim())
+    }
+
+    // For loop: for var in ...:
+    const forMatch = trimmed.match(/for\s+([a-zA-Z_]\w*)\s+in/)
+    if (forMatch) {
+      stored.add(forMatch[1].trim())
+    }
+
+    // Function def: def var(...)
+    const defMatch = trimmed.match(/def\s+([a-zA-Z_]\w*)\s*\(/)
+    if (defMatch) {
+      stored.add(defMatch[1].trim())
+    }
+  }
+
+  // Strip all strings (including prefixed strings: f"...", r"...", etc.)
+  let noStrings = cleanCode.replace(/[frbFRB]*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, '""')
+
+  // Strip attribute accesses (.prop)
+  noStrings = noStrings.replace(/\.[a-zA-Z_]\w*/g, '')
+
+  const rawWords = noStrings.match(/\b[a-zA-Z_]\w*\b/g) || []
+  const undefinedVars = new Set<string>()
+
+  for (const w of rawWords) {
+    if (!stored.has(w) && !PYTHON_BUILTINS_SET.has(w)) {
+      undefinedVars.add(w)
+    }
+  }
+
+  return undefinedVars
+}
+
+/**
  * Safely evaluates a basic Python expression in the context of the scope.
  */
 function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
@@ -137,11 +428,15 @@ function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
     jsExpr = `\`${converted.replace(/`/g, '\\`')}\``
   }
 
-  // Convert Python booleans and None to JS
+  // Convert Python booleans, None, logical operators, and attributes
   jsExpr = jsExpr
     .replace(/\bTrue\b/g, 'true')
     .replace(/\bFalse\b/g, 'false')
     .replace(/\bNone\b/g, 'null')
+    .replace(/\band\b/g, '&&')
+    .replace(/\bor\b/g, '||')
+    .replace(/\bnot\b/g, '!')
+    .replace(/\.__name\b(?!_)/g, '.__name__')
 
   const scopeKeys = Object.keys(scope)
   const scopeVals = Object.values(scope)
@@ -177,30 +472,37 @@ export function tryParseJsonOrPythonDict(str: string): unknown {
   return null
 }
 
+type SingleRunResult = PythonExecutionResult & {
+  undef: Set<string>
+}
+
 /**
- * Lightweight JavaScript fallback evaluator for basic Python scripts.
- * Supports assignments, arithmetic, strings, f-strings, comparisons, dictionaries, lists, and print statements.
- * Safe for both server-side and browser/offline execution.
+ * Executes a single evaluation pass of a Python script with optional mock variable overrides.
  */
-export function evaluatePythonJS(code: string): PythonExecutionResult {
-  const statements = splitIntoLogicalStatements(code)
-  const scope: Record<string, unknown> = {}
+function runSingleScript(
+  sourceCode: string,
+  mockValues?: Record<string, unknown>
+): SingleRunResult {
+  const statements = splitIntoLogicalStatements(sourceCode)
+  const scope: Record<string, unknown> = { ...getBuiltinScope() }
+  const builtinKeys = new Set(Object.keys(scope))
   const output: string[] = []
   let lastExprValue: unknown = undefined
 
-  // Pre-populate common free variables (e.g. x, y) consistently across runs
+  const undef = findUndefinedVariables(sourceCode)
   const mockVars = new Set<string>()
-  const primes = [3, 7, 11, 13, 17, 19]
-  let primeIdx = 0
-  const rawWords = code.match(/\b[a-zA-Z_]\w*\b/g) || []
-  const uniqueWords = Array.from(new Set(rawWords)).sort()
-  for (const word of uniqueWords) {
-    if (
-      !scope[word] &&
-      !['print', 'True', 'False', 'None', 'if', 'else', 'for', 'while', 'def'].includes(word)
-    ) {
-      scope[word] = primes[primeIdx++ % primes.length]
-      mockVars.add(word)
+
+  if (mockValues) {
+    for (const [k, v] of Object.entries(mockValues)) {
+      scope[k] = v
+      mockVars.add(k)
+    }
+  } else if (undef.size > 0) {
+    const primes = [3, 7, 11, 13, 17, 19, 23, 29]
+    let idx = 0
+    for (const v of Array.from(undef).sort()) {
+      scope[v] = primes[idx++ % primes.length]
+      mockVars.add(v)
     }
   }
 
@@ -211,10 +513,15 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
     // Handle print(...)
     const printMatch = rawText.match(/^print\s*\(([\s\S]*)\)$/)
     if (printMatch) {
-      const expr = printMatch[1].trim()
+      const argsText = printMatch[1].trim()
+      if (!argsText) {
+        output.push('')
+        continue
+      }
+      const argsList = splitArguments(argsText)
       try {
-        const val = evaluateExpr(expr, scope)
-        output.push(val !== undefined ? String(val) : '')
+        const evaled = argsList.map((a) => formatPyValue(evaluateExpr(a, scope)))
+        output.push(evaled.join(' '))
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         return {
@@ -222,13 +529,15 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
           stdout: output.join('\n'),
           stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
           state: {},
+          exprResult: null,
           exitCode: 1,
+          undef,
         }
       }
       continue
     }
 
-    // Handle type-annotated or regular assignment: var: type = expr OR var = expr
+    // Handle assignment: var: type = expr OR var = expr
     const assignMatch = rawText.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=\s*([\s\S]+)$/)
     if (assignMatch) {
       const varName = assignMatch[1].trim()
@@ -244,7 +553,9 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
           stdout: output.join('\n'),
           stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
           state: {},
+          exprResult: null,
           exitCode: 1,
+          undef,
         }
       }
       continue
@@ -254,7 +565,7 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
     try {
       lastExprValue = evaluateExpr(rawText, scope)
       if (lastExprValue !== undefined && output.length === 0) {
-        output.push(String(lastExprValue))
+        output.push(formatPyValue(lastExprValue))
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -263,16 +574,18 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
         stdout: output.join('\n'),
         stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
         state: {},
+        exprResult: null,
         exitCode: 1,
+        undef,
       }
     }
   }
 
   const state: Record<string, string> = {}
   for (const [k, v] of Object.entries(scope)) {
-    if (mockVars.has(k)) continue
+    if (mockVars.has(k) || builtinKeys.has(k) || PYTHON_BUILTINS_SET.has(k)) continue
     try {
-      state[k] = typeof v === 'object' && v !== null ? canonicalStringify(v) : String(v)
+      state[k] = typeof v === 'object' && v !== null ? canonicalStringify(v) : JSON.stringify(v)
     } catch {
       state[k] = String(v)
     }
@@ -283,16 +596,67 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
     stdout: output.join('\n'),
     stderr: '',
     state,
-    exprResult: lastExprValue !== undefined ? String(lastExprValue) : null,
+    exprResult: lastExprValue !== undefined ? formatPyValue(lastExprValue) : null,
     exitCode: 0,
+    undef,
   }
 }
 
 /**
+ * Lightweight JavaScript fallback evaluator for basic Python scripts.
+ * Supports assignments, type annotations, arithmetic, strings, f-strings, comparisons,
+ * dictionaries, lists, type inspection (`type(x).__name__`), and print statements.
+ * Safe for both server-side and browser/offline execution.
+ */
+export function evaluatePythonJS(code: string): PythonExecutionResult {
+  const firstRun = runSingleScript(code)
+  if (!firstRun.success) {
+    return firstRun
+  }
+
+  const testRuns: Array<{ out: string; state: Record<string, string>; expr: string | null }> = [
+    { out: firstRun.stdout, state: firstRun.state ?? {}, expr: firstRun.exprResult ?? null },
+  ]
+
+  // If there were unbound variables, run a second test run with different prime values
+  // to mathematically verify algebraic equivalence (e.g. x+y == y+x, but x-y != y-x)
+  if (firstRun.undef && firstRun.undef.size > 0) {
+    const primes2 = [5, 19, 29, 37, 47, 59]
+    const mock2: Record<string, number> = {}
+    let idx = 0
+    for (const v of Array.from(firstRun.undef).sort()) {
+      mock2[v] = primes2[idx++ % primes2.length]
+    }
+    const secondRun = runSingleScript(code, mock2)
+    testRuns.push({
+      out: secondRun.stdout,
+      state: secondRun.state ?? {},
+      expr: secondRun.exprResult ?? null,
+    })
+  }
+
+  return {
+    ...firstRun,
+    testRuns,
+  }
+}
+
+/**
+ * Normalizes output representations such as `<class 'int'>` vs `<class: int>` vs `'int'`
+ * to ensure fair comparison regardless of formatting differences.
+ */
+export function normalizeTypeOutput(str: string): string {
+  return str
+    .trim()
+    .replace(/<class:?\s*['"]?(\w+)['"]?>/g, '$1')
+    .replace(/\s+/g, ' ')
+}
+
+/**
  * Compares reference code execution results with student code execution results.
- * Verifies that the student's code runs without error and produces the exact same result:
- * - Matching console stdout (for print-based programs)
- * - Matching memory/variable states (for assignments and logic, e.g. x = 1, dictionaries, etc.)
+ * Verifies that the student's code runs without error and produces the equivalent result:
+ * - Matching console stdout (for print-based programs or type inspection)
+ * - Matching memory/variable states (for assignments and logic, e.g. fecha = "...", dictionaries, etc.)
  * - Matching multi-run test suites for algebraic expressions (e.g. x+y vs y+x)
  */
 export function compareExecutionResults(
@@ -319,8 +683,12 @@ export function compareExecutionResults(
     for (let i = 0; i < refResult.testRuns.length; i++) {
       const refRun = refResult.testRuns[i]
       const stuRun = studentResult.testRuns[i]
-      const outMatches = refRun.out === stuRun.out
-      const exprMatches = refRun.expr === stuRun.expr
+      const outMatches =
+        refRun.out === stuRun.out ||
+        normalizeTypeOutput(refRun.out) === normalizeTypeOutput(stuRun.out)
+      const exprMatches =
+        refRun.expr === stuRun.expr ||
+        normalizeTypeOutput(refRun.expr ?? '') === normalizeTypeOutput(stuRun.expr ?? '')
       const stateMatches = canonicalStringify(refRun.state) === canonicalStringify(stuRun.state)
       if (!outMatches || !exprMatches || !stateMatches) {
         allRunsMatch = false
@@ -388,9 +756,16 @@ export function compareExecutionResults(
 
   let isSuccess = false
   if (refStdout !== '') {
-    isSuccess = (stuStdout === refStdout) && stateMatches
+    const stdoutMatches =
+      stuStdout === refStdout ||
+      normalizeTypeOutput(stuStdout) === normalizeTypeOutput(refStdout)
+    isSuccess = stdoutMatches && stateMatches
   } else if (refResult.exprResult !== undefined && refResult.exprResult !== null) {
-    isSuccess = (studentResult.exprResult === refResult.exprResult) && stateMatches
+    const exprMatches =
+      studentResult.exprResult === refResult.exprResult ||
+      normalizeTypeOutput(studentResult.exprResult ?? '') ===
+        normalizeTypeOutput(refResult.exprResult ?? '')
+    isSuccess = exprMatches && stateMatches
   } else if (refKeys.length > 0) {
     isSuccess = stateMatches
   } else {
@@ -418,7 +793,11 @@ export function compareExecutionResults(
 
   // Detailed failure explanation
   const reasons: string[] = []
-  if (refStdout !== '' && stuStdout !== refStdout) {
+  if (
+    refStdout !== '' &&
+    stuStdout !== refStdout &&
+    normalizeTypeOutput(stuStdout) !== normalizeTypeOutput(refStdout)
+  ) {
     reasons.push(`Salida en consola:\n  Obtenida: "${stuStdout}"\n  Esperada: "${refStdout}"`)
   }
   if (!stateMatches && stateMismatchDetails.length > 0) {
@@ -431,3 +810,4 @@ export function compareExecutionResults(
     displayOutput: displayOutput || studentResult.stdout || 'Sin salida en consola.',
   }
 }
+
