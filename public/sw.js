@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v4'
+const CACHE_NAME = 'knoten-cache-v5'
 
 const PRECACHE_ASSETS = [
   '/',
@@ -113,7 +113,7 @@ self.addEventListener('fetch', (event) => {
     }
 
     event.respondWith(
-      fetchWithTimeout(request, 1200)
+      fetchWithTimeout(request, 4000)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone()
@@ -213,9 +213,9 @@ self.addEventListener('fetch', (event) => {
       return
     }
 
-    // Online: Fast network race with 1.5s timeout, then fall back immediately to cache
+    // Online: Fast network race with 5s timeout, then fall back immediately to cache
     event.respondWith(
-      fetchWithTimeout(request, 1500)
+      fetchWithTimeout(request, 5000)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone()

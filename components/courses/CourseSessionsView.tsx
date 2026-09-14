@@ -100,6 +100,20 @@ export default function CourseSessionsView({
     }
   }, [courseId, claseSessions, repasoSessions])
 
+  // Reset transition state if user navigates back (pageshow / popstate)
+  useEffect(() => {
+    const handleReset = () => {
+      setIsTransitioning(false)
+      setSelectedSessionId(null)
+    }
+    window.addEventListener('pageshow', handleReset)
+    window.addEventListener('popstate', handleReset)
+    return () => {
+      window.removeEventListener('pageshow', handleReset)
+      window.removeEventListener('popstate', handleReset)
+    }
+  }, [])
+
   const sortedClase = [...localClase].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
   const sortedRepaso = [...localRepaso].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
 
@@ -111,10 +125,30 @@ export default function CourseSessionsView({
     setSelectedSessionId(session.id)
     setIsTransitioning(true)
 
-    // Cinematic transition: selected vanishes, others slide right, screen goes white
+    // If offline, SPA router cannot fetch Next.js RSC payload; perform document navigation
+    // so Service Worker serves the offline activity shell instantly!
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setTimeout(() => {
+        window.location.assign(href)
+      }, 250)
+      return
+    }
+
+    // Online: attempt router.push, with timeout fallback to window.location.assign
     setTimeout(() => {
-      router.push(href)
-    }, 380)
+      try {
+        router.push(href)
+      } catch {
+        window.location.assign(href)
+      }
+    }, 320)
+
+    // Safety fallback: if router.push stalls or fails, force document navigation
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.location.pathname !== href) {
+        window.location.assign(href)
+      }
+    }, 650)
   }
 
   const renderSessionCard = (session: SessionItem, index: number) => {

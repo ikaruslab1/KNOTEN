@@ -1153,7 +1153,21 @@ function FlowCanvasInner({
       )
       // Navigate after exit animation completes
       setTimeout(() => {
-        router.push(`/actividad/${targetId}`)
+        const targetUrl = `/actividad/${targetId}`
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          window.location.assign(targetUrl)
+          return
+        }
+        try {
+          router.push(targetUrl)
+        } catch {
+          window.location.assign(targetUrl)
+        }
+        setTimeout(() => {
+          if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
+            window.location.assign(targetUrl)
+          }
+        }, 500)
       }, 300)
     },
     [activityId, router, setNodes]

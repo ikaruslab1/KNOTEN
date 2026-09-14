@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { BookOpen, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { getOfflineCourses } from '@/lib/offline/db'
 
 interface Professor {
   nombre: string
@@ -23,9 +24,56 @@ interface CourseIndexGridProps {
 }
 
 export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
+  const [localCourses, setLocalCourses] = useState<CourseItem[]>(courses)
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const router = useRouter()
+
+  // Load offline courses from IndexedDB if SSR courses was empty (e.g. offline PC)
+  useEffect(() => {
+    let isMounted = true
+    if (courses && courses.length > 0) {
+      setLocalCourses(courses)
+      return
+    }
+
+    async function loadOffline() {
+      try {
+        const offCourses = await getOfflineCourses()
+        if (offCourses && offCourses.length > 0 && isMounted) {
+          setLocalCourses(
+            offCourses.map((c) => ({
+              id: c.id,
+              nombre: c.nombre,
+              imagen_url: c.imagen_url,
+              profiles: null,
+            }))
+          )
+        }
+      } catch (err) {
+        console.warn('Could not load offline courses in grid:', err)
+      }
+    }
+
+    loadOffline()
+    return () => {
+      isMounted = false
+    }
+  }, [courses])
+
+  // Reset transition state if user navigates back (pageshow / popstate)
+  useEffect(() => {
+    const handleReset = () => {
+      setIsTransitioning(false)
+      setSelectedCourseId(null)
+    }
+    window.addEventListener('pageshow', handleReset)
+    window.addEventListener('popstate', handleReset)
+    return () => {
+      window.removeEventListener('pageshow', handleReset)
+      window.removeEventListener('popstate', handleReset)
+    }
+  }, [])
 
   const handleCourseClick = (courseId: string, e: React.MouseEvent) => {
     e.preventDefault()
@@ -34,13 +82,35 @@ export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
     setSelectedCourseId(courseId)
     setIsTransitioning(true)
 
-    // Cinematic delay: selected disappears, others zoom out, screen goes white
+    const targetUrl = `/curso/${courseId}`
+
+    // If offline, SPA router cannot fetch Next.js RSC payload; perform document navigation
+    // so Service Worker serves the offline app shell instantly!
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setTimeout(() => {
+        window.location.assign(targetUrl)
+      }, 250)
+      return
+    }
+
+    // Online: attempt router.push, with timeout fallback to window.location.assign
     setTimeout(() => {
-      router.push(`/curso/${courseId}`)
-    }, 380)
+      try {
+        router.push(targetUrl)
+      } catch {
+        window.location.assign(targetUrl)
+      }
+    }, 320)
+
+    // Safety fallback: if router.push stalls or fails, force document navigation
+    setTimeout(() => {
+      if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
+        window.location.assign(targetUrl)
+      }
+    }, 650)
   }
 
-  if (courses.length === 0) {
+  if (localCourses.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-zinc-400 gap-4 bg-white border border-dashed border-zinc-300 rounded-2xl animate-slide-up-fade">
         <BookOpen className="w-12 h-12 text-zinc-400" />
@@ -64,7 +134,7 @@ export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {courses.map((course, index) => {
+        {localCourses.map((course, index) => {
           const isSelected = selectedCourseId === course.id
           const hasSelection = selectedCourseId !== null
           const isOther = hasSelection && !isSelected

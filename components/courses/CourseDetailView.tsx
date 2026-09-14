@@ -4,7 +4,13 @@ import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
 import { ChevronLeft, Loader2, BookOpen } from 'lucide-react'
-import { openDB, OfflineCourse } from '@/lib/offline/db'
+import {
+  openDB,
+  OfflineCourse,
+  getOfflineSessionsByCourse,
+  getOfflineActivitiesBySession,
+} from '@/lib/offline/db'
+import { createClient } from '@/lib/supabase/client'
 import CourseOfflineControls from '@/components/pwa/CourseOfflineControls'
 import CourseSessionsView, { SessionItem } from './CourseSessionsView'
 import { useAuth } from '@/components/auth/AuthProvider'
@@ -36,31 +42,75 @@ export default function CourseDetailView({
   useEffect(() => {
     let isMounted = true
 
-    async function loadFromIndexedDB() {
-      if (initialCourse && initialCourse.id === courseId) {
-        if (isMounted) {
-          setCourse(initialCourse)
-          setIsLoading(false)
-        }
+    // 1. Determine active course ID from window pathname if available (handles cached shell)
+    let pathCourseId = ''
+    if (typeof window !== 'undefined') {
+      const segments = window.location.pathname.split('/').filter(Boolean)
+      const cIdx = segments.indexOf('curso')
+      if (cIdx !== -1 && segments[cIdx + 1]) {
+        pathCourseId = segments[cIdx + 1]
+      }
+    }
+    const resolvedId = pathCourseId || courseId || initialCourse?.id || ''
+
+    // 2. If initialCourse matches resolvedId, is not a shell, and has sessions, use it!
+    if (
+      initialCourse &&
+      initialCourse.id === resolvedId &&
+      resolvedId !== 'curso-shell' &&
+      resolvedId !== 'offline' &&
+      Array.isArray(initialCourse.sessions) &&
+      initialCourse.sessions.length > 0
+    ) {
+      if (isMounted) {
+        setCourse(initialCourse)
+        setIsLoading(false)
+      }
+      return
+    }
+
+    async function resolveCourse() {
+      if (!resolvedId) {
+        if (isMounted) setIsLoading(false)
         return
       }
 
+      if (!course || course.id !== resolvedId) {
+        setIsLoading(true)
+      }
+
+      // 3. Check IndexedDB offline cache
       try {
         const db = await openDB()
         const offlineCourse = await new Promise<OfflineCourse | null>((resolve) => {
           const tx = db.transaction('courses', 'readonly')
-          const req = tx.objectStore('courses').get(courseId)
+          const req = tx.objectStore('courses').get(resolvedId)
           req.onsuccess = () => resolve(req.result || null)
           req.onerror = () => resolve(null)
         })
 
         if (offlineCourse && isMounted) {
+          const offSessions = await getOfflineSessionsByCourse(resolvedId)
+          const fullSessions: SessionItem[] = await Promise.all(
+            offSessions.map(async (s) => {
+              const acts = await getOfflineActivitiesBySession(s.id)
+              return {
+                id: s.id,
+                nombre: s.nombre,
+                tipo: s.tipo,
+                orden: s.orden ?? 0,
+                fecha_liberacion: s.fecha_liberacion,
+                activities: acts.map((a) => ({ id: a.id, orden: a.orden })),
+              }
+            })
+          )
+
           setCourse({
             id: offlineCourse.id,
             nombre: offlineCourse.nombre,
             imagen_url: offlineCourse.imagen_url,
             profesor_id: offlineCourse.profesor_id,
-            sessions: [], // CourseSessionsView will load sessions from IndexedDB
+            sessions: fullSessions,
           })
           setIsLoading(false)
           return
@@ -69,12 +119,62 @@ export default function CourseDetailView({
         console.warn('Could not read course from IndexedDB:', err)
       }
 
+      // 4. Fetch directly from Supabase on client if not in IndexedDB (when online)
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        try {
+          const supabase = createClient()
+          const { data: rawCourse, error } = await supabase
+            .from('courses')
+            .select(`
+              id,
+              nombre,
+              imagen_url,
+              profesor_id,
+              sessions (
+                id,
+                nombre,
+                tipo,
+                orden,
+                fecha_liberacion,
+                activities (
+                  id,
+                  orden
+                )
+              )
+            `)
+            .eq('id', resolvedId)
+            .order('orden', { referencedTable: 'sessions', ascending: true })
+            .maybeSingle()
+
+          if (rawCourse && isMounted) {
+            setCourse({
+              id: rawCourse.id,
+              nombre: rawCourse.nombre,
+              imagen_url: rawCourse.imagen_url,
+              profesor_id: rawCourse.profesor_id,
+              sessions: (rawCourse.sessions as any) ?? [],
+            })
+            setIsLoading(false)
+            return
+          }
+        } catch (err) {
+          console.warn('Could not fetch course client-side:', err)
+        }
+      }
+
+      // 5. Fallback: if initialCourse was provided for this ID, use it even if sessions were empty
+      if (initialCourse && initialCourse.id === resolvedId && isMounted) {
+        setCourse(initialCourse)
+        setIsLoading(false)
+        return
+      }
+
       if (isMounted) {
         setIsLoading(false)
       }
     }
 
-    loadFromIndexedDB()
+    resolveCourse()
 
     return () => {
       isMounted = false

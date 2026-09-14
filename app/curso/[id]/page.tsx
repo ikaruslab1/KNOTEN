@@ -13,7 +13,7 @@ export default async function CoursePage({
 
   try {
     const supabase = await createClient();
-    const [prof, courseRes] = await Promise.all([
+    const [profResult, courseResult] = await Promise.allSettled([
       getCurrentProfile(),
       supabase
         .from('courses')
@@ -38,8 +38,16 @@ export default async function CoursePage({
         .order('orden', { referencedTable: 'sessions', ascending: true })
         .maybeSingle(),
     ]);
-    profile = prof;
-    rawCourse = courseRes?.data || null;
+
+    if (profResult.status === 'fulfilled') {
+      profile = profResult.value;
+    }
+    if (courseResult.status === 'fulfilled') {
+      rawCourse = courseResult.value?.data || null;
+      if (courseResult.value?.error) {
+        console.warn('Course query returned error:', courseResult.value.error);
+      }
+    }
   } catch (err) {
     console.warn('Could not fetch course on server (offline):', err);
   }
