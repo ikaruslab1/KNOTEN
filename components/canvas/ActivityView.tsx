@@ -10,6 +10,7 @@ import Link from 'next/link'
 
 export interface ActivityViewInitialData {
   id: string
+  sessionId?: string
   titulo: string
   orden?: number
   enunciado: string | null
@@ -33,8 +34,27 @@ export default function ActivityView({
   activityId,
   initialActivity,
 }: ActivityViewProps) {
-  const [data, setData] = useState<ActivityViewInitialData | null>(initialActivity)
-  const [isLoading, setIsLoading] = useState<boolean>(!initialActivity)
+  // Extract targetId from pathname if client-side
+  let pathActivityId = ''
+  if (typeof window !== 'undefined') {
+    const segments = window.location.pathname.split('/').filter(Boolean)
+    const actIdx = segments.indexOf('actividad')
+    if (actIdx !== -1 && segments[actIdx + 1]) {
+      pathActivityId = segments[actIdx + 1]
+    }
+  }
+  const currentTargetId = pathActivityId || activityId || ''
+
+  const isInitialValidMatch =
+    Boolean(initialActivity) &&
+    initialActivity?.id === currentTargetId &&
+    currentTargetId !== 'actividad-shell' &&
+    currentTargetId !== 'offline'
+
+  const [data, setData] = useState<ActivityViewInitialData | null>(
+    isInitialValidMatch ? initialActivity : null
+  )
+  const [isLoading, setIsLoading] = useState<boolean>(!isInitialValidMatch)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
   useEffect(() => {
@@ -51,7 +71,15 @@ export default function ActivityView({
         }
       }
 
-      const targetId = pathActivityId || activityId || initialActivity?.id || ''
+      const targetId = pathActivityId || activityId || ''
+
+      if (!targetId || targetId === 'actividad-shell' || targetId === 'offline') {
+        if (isMounted) {
+          setIsLoading(false)
+          setErrorMsg('Identificador de actividad no válido.')
+        }
+        return
+      }
 
       // 2. If initialActivity matches the exact target ID and is not a generic shell, use it!
       if (
@@ -78,7 +106,9 @@ export default function ActivityView({
           )
 
           // Load sibling activities from the same session in IndexedDB
-          const siblings = await getOfflineActivitiesBySession(offlineAct.session_id)
+          const siblings = offlineAct.session_id
+            ? await getOfflineActivitiesBySession(offlineAct.session_id)
+            : []
 
           // Load completed map from localStorage
           let localCompleted: Record<string, boolean> = {}
@@ -89,6 +119,7 @@ export default function ActivityView({
 
           setData({
             id: offlineAct.id,
+            sessionId: offlineAct.session_id,
             titulo: offlineAct.titulo,
             orden: offlineAct.orden,
             enunciado: offlineAct.enunciado,
@@ -223,6 +254,7 @@ export default function ActivityView({
 
           const resolvedData: ActivityViewInitialData = {
             id: act.id,
+            sessionId: act.session_id,
             titulo: act.titulo,
             orden: act.orden,
             enunciado: act.enunciado,
@@ -272,15 +304,7 @@ export default function ActivityView({
         }
       }
 
-      // 5. Fallback if initialActivity was provided but ID differed
-      if (initialActivity && isMounted) {
-        setData(initialActivity)
-        setIsLoading(false)
-        setErrorMsg(null)
-        return
-      }
-
-      // 6. Activity not found anywhere or offline failure
+      // 5. Activity not found anywhere or offline failure
       if (isMounted) {
         setIsLoading(false)
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -344,7 +368,9 @@ export default function ActivityView({
 
   return (
     <FlowCanvas
+      key={data.id}
       activityId={data.id}
+      sessionId={data.sessionId}
       activityTitle={data.titulo}
       activityOrder={data.orden}
       blocks={data.blocks}

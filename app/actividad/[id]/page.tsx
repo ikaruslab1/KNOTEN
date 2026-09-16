@@ -108,6 +108,7 @@ export default async function ActividadPage({
 
       initialData = {
         id: activity.id,
+        sessionId: activity.session_id,
         titulo: activity.titulo,
         orden: activity.orden,
         enunciado: activity.enunciado,

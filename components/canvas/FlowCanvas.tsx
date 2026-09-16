@@ -84,6 +84,7 @@ type NodeState = "idle" | "connected" | "success" | "error"
 
 export interface FlowCanvasProps {
   activityId: string
+  sessionId?: string
   activityTitle?: string
   activityOrder?: number
   courseId?: string

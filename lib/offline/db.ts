@@ -204,7 +204,27 @@ export async function saveActivity(activity: OfflineActivity): Promise<void> {
   return new Promise((resolve, reject) => {
     const tx = db.transaction('activities', 'readwrite')
     const store = tx.objectStore('activities')
-    store.put(activity)
+
+    // First inspect existing record to prevent overwriting valid session_id or curso_id
+    const getReq = store.get(activity.id)
+    getReq.onsuccess = () => {
+      const existing: OfflineActivity | undefined = getReq.result
+      const finalSessionId = activity.session_id?.trim() || existing?.session_id || ''
+      const finalCursoId = activity.curso_id?.trim() || existing?.curso_id || ''
+
+      const merged: OfflineActivity = {
+        ...existing,
+        ...activity,
+        session_id: finalSessionId,
+        curso_id: finalCursoId,
+        blocks: activity.blocks && activity.blocks.length > 0 ? activity.blocks : existing?.blocks || [],
+        connections: activity.connections && activity.connections.length > 0 ? activity.connections : existing?.connections || [],
+      }
+      store.put(merged)
+    }
+    getReq.onerror = () => {
+      store.put(activity)
+    }
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
@@ -550,4 +570,62 @@ export async function getSessionOfflineStatus(sessionId: string): Promise<{
     return { isDownloaded: false, activitiesCount: 0 }
   }
 }
+
+/**
+ * Auto-repairs activities in IndexedDB whose session_id might have been cleared
+ * due to previous unpatched client code.
+ */
+export async function repairCorruptedOfflineActivities(): Promise<number> {
+  try {
+    const db = await openDB()
+    const sessions = await new Promise<OfflineSession[]>((resolve) => {
+      const tx = db.transaction('sessions', 'readonly')
+      const req = tx.objectStore('sessions').getAll()
+      req.onsuccess = () => resolve(req.result || [])
+      req.onerror = () => resolve([])
+    })
+
+    if (sessions.length === 0) return 0
+
+    const activities = await new Promise<OfflineActivity[]>((resolve) => {
+      const tx = db.transaction('activities', 'readonly')
+      const req = tx.objectStore('activities').getAll()
+      req.onsuccess = () => resolve(req.result || [])
+      req.onerror = () => resolve([])
+    })
+
+    const toFix: OfflineActivity[] = []
+    for (const act of activities) {
+      if (!act.session_id || act.session_id.trim() === '') {
+        const matched = sessions.find(
+          (s) =>
+            (act.curso_id && s.curso_id === act.curso_id && act.session_nombre && s.nombre === act.session_nombre) ||
+            (act.session_nombre && s.nombre === act.session_nombre)
+        )
+        if (matched) {
+          act.session_id = matched.id
+          if (!act.curso_id) act.curso_id = matched.curso_id
+          toFix.push(act)
+        }
+      }
+    }
+
+    if (toFix.length > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('activities', 'readwrite')
+        const store = tx.objectStore('activities')
+        for (const act of toFix) {
+          store.put(act)
+        }
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => reject(tx.error)
+      })
+    }
+
+    return toFix.length
+  } catch {
+    return 0
+  }
+}
+
 
