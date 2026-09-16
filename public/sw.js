@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v6'
+const CACHE_NAME = 'knoten-cache-v7'
 
 const SHELL_ASSETS = [
   '/',
@@ -28,6 +28,7 @@ function fetchWithTimeout(request, timeoutMs = 1500) {
 }
 
 // Install event: precache shell assets + ALL Next.js static chunks
+// sw-cache-manifest.json is generated at build time by scripts/generate-sw-manifest.mjs
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -42,9 +43,9 @@ self.addEventListener('install', (event) => {
         )
       )
 
-      // 2. Fetch manifest of all Next.js static chunks and cache them
+      // 2. Read static manifest (generated at build time — always available on CDN)
       try {
-        const manifestRes = await fetch('/api/sw-manifest', { cache: 'no-store' })
+        const manifestRes = await fetch('/sw-cache-manifest.json', { cache: 'no-store' })
         if (manifestRes.ok) {
           const { assets = [] } = await manifestRes.json()
           // Cache all chunks in parallel, ignoring individual failures
@@ -55,10 +56,11 @@ self.addEventListener('install', (event) => {
                 .catch(() => {})
             )
           )
+          console.log(`[SW] Precached ${assets.length} static assets.`)
         }
       } catch (e) {
         // Manifest fetch failed — app will still work online and cache assets lazily
-        console.warn('[SW] Could not fetch sw-manifest:', e)
+        console.warn('[SW] Could not fetch sw-cache-manifest.json:', e)
       }
 
       await self.skipWaiting()

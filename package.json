@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/generate-sw-manifest.mjs",
     "start": "next start",
     "lint": "eslint",
     "db:setup": "node scripts/setup-db.mjs",

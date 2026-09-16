@@ -1,0 +1,41 @@
+{
+  "version": 1789586644975,
+  "assets": [
+    "/_next/static/6cxeF_R2bPQudUu0pAReq/_buildManifest.js",
+    "/_next/static/6cxeF_R2bPQudUu0pAReq/_clientMiddlewareManifest.js",
+    "/_next/static/6cxeF_R2bPQudUu0pAReq/_ssgManifest.js",
+    "/_next/static/chunks/03rsimcwccr8q.js",
+    "/_next/static/chunks/04eefriftmpz1.js",
+    "/_next/static/chunks/06k59kkw7w-t0.js",
+    "/_next/static/chunks/0cz1d0mv5g_q7.js",
+    "/_next/static/chunks/0kgdcctk35gou.js",
+    "/_next/static/chunks/0l_28gg9rnpci.js",
+    "/_next/static/chunks/0ru6k6ze0g0uz.js",
+    "/_next/static/chunks/0v572piool6m6.js",
+    "/_next/static/chunks/18etu6eopb3ji.js",
+    "/_next/static/chunks/18zsj7vqel1w-.js",
+    "/_next/static/chunks/1bj0-5hnzxgz8.css",
+    "/_next/static/chunks/1bx3-tohw6dcj.js",
+    "/_next/static/chunks/1lo1itx447vzn.js",
+    "/_next/static/chunks/1_g1-0uwcke8o.js",
+    "/_next/static/chunks/241uf-c6iz3jb.js",
+    "/_next/static/chunks/2ald4viqb385q.js",
+    "/_next/static/chunks/2lii7c86_qidi.js",
+    "/_next/static/chunks/2thtolrxt9x2z.js",
+    "/_next/static/chunks/31su_5gii-8ja.js",
+    "/_next/static/chunks/3ihyu56a_6lez.js",
+    "/_next/static/chunks/3lenqb60y0du7.js",
+    "/_next/static/chunks/3mpe2jejel0v2.css",
+    "/_next/static/chunks/3skncgjp2p5tv.js",
+    "/_next/static/chunks/3tlatlr_6g6xn.js",
+    "/_next/static/chunks/44p4e1vamnf4p.js",
+    "/_next/static/chunks/turbopack-340ocqp6ylxfd.js"
+  ],
+  "shells": [
+    "/",
+    "/manifest.json",
+    "/offline.html",
+    "/icon-192.png",
+    "/icon-512.png"
+  ]
+}
