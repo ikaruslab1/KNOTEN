@@ -201,30 +201,38 @@ export async function getOfflineSessionsByCourse(cursoId: string): Promise<Offli
 
 export async function saveActivity(activity: OfflineActivity): Promise<void> {
   const db = await openDB()
+
+  // 1. Read existing record in a separate readonly transaction
+  const existing = await new Promise<OfflineActivity | undefined>((resolve) => {
+    const tx = db.transaction('activities', 'readonly')
+    const req = tx.objectStore('activities').get(activity.id)
+    req.onsuccess = () => resolve(req.result as OfflineActivity | undefined)
+    req.onerror = () => resolve(undefined)
+  })
+
+  // 2. Merge: preserve valid session_id / curso_id if incoming ones are empty
+  const finalSessionId = activity.session_id?.trim() || existing?.session_id || ''
+  const finalCursoId = activity.curso_id?.trim() || existing?.curso_id || ''
+  const finalBlocks =
+    activity.blocks && activity.blocks.length > 0 ? activity.blocks : existing?.blocks || []
+  const finalConnections =
+    activity.connections && activity.connections.length > 0
+      ? activity.connections
+      : existing?.connections || []
+
+  const merged: OfflineActivity = {
+    ...existing,
+    ...activity,
+    session_id: finalSessionId,
+    curso_id: finalCursoId,
+    blocks: finalBlocks,
+    connections: finalConnections,
+  }
+
+  // 3. Write merged record in a fresh readwrite transaction
   return new Promise((resolve, reject) => {
     const tx = db.transaction('activities', 'readwrite')
-    const store = tx.objectStore('activities')
-
-    // First inspect existing record to prevent overwriting valid session_id or curso_id
-    const getReq = store.get(activity.id)
-    getReq.onsuccess = () => {
-      const existing: OfflineActivity | undefined = getReq.result
-      const finalSessionId = activity.session_id?.trim() || existing?.session_id || ''
-      const finalCursoId = activity.curso_id?.trim() || existing?.curso_id || ''
-
-      const merged: OfflineActivity = {
-        ...existing,
-        ...activity,
-        session_id: finalSessionId,
-        curso_id: finalCursoId,
-        blocks: activity.blocks && activity.blocks.length > 0 ? activity.blocks : existing?.blocks || [],
-        connections: activity.connections && activity.connections.length > 0 ? activity.connections : existing?.connections || [],
-      }
-      store.put(merged)
-    }
-    getReq.onerror = () => {
-      store.put(activity)
-    }
+    tx.objectStore('activities').put(merged)
     tx.oncomplete = () => resolve()
     tx.onerror = () => reject(tx.error)
   })
@@ -531,7 +539,6 @@ export async function getCourseOfflineStatus(cursoId: string): Promise<{
   activitiesCount: number
 }> {
   try {
-    await repairCorruptedOfflineActivities()
     const db = await openDB()
     const course = await new Promise<any>((resolve) => {
       const tx = db.transaction('courses', 'readonly')
@@ -562,7 +569,6 @@ export async function getSessionOfflineStatus(sessionId: string): Promise<{
   activitiesCount: number
 }> {
   try {
-    await repairCorruptedOfflineActivities()
     const acts = await getOfflineActivitiesBySession(sessionId)
     return {
       isDownloaded: acts.length > 0,

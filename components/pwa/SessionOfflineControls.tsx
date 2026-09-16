@@ -39,22 +39,12 @@ export default function SessionOfflineControls({
       checkStatus()
     }
 
-    const handleVisibility = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        checkStatus()
-      }
-    }
-
     window.addEventListener('knoten:download-updated', handleUpdate)
     window.addEventListener('knoten:sync-complete', handleUpdate)
-    window.addEventListener('focus', handleUpdate)
-    document.addEventListener('visibilitychange', handleVisibility)
 
     return () => {
       window.removeEventListener('knoten:download-updated', handleUpdate)
       window.removeEventListener('knoten:sync-complete', handleUpdate)
-      window.removeEventListener('focus', handleUpdate)
-      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [sessionId])
 
