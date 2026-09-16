@@ -6,7 +6,7 @@ import { Lock, Calendar, ArrowRight } from 'lucide-react'
 import OfflineSessionBadge from '@/components/pwa/OfflineSessionBadge'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/auth/AuthProvider'
-import { getOfflineSessionsByCourse, getOfflineActivitiesBySession } from '@/lib/offline/db'
+import { getOfflineSessionsByCourse, getOfflineActivitiesBySession, repairCorruptedOfflineActivities } from '@/lib/offline/db'
 
 interface Activity {
   id: string
@@ -65,6 +65,7 @@ export default function CourseSessionsView({
       if ((claseSessions.length > 0 || repasoSessions.length > 0) && courseId) return
       if (!courseId) return
       try {
+        await repairCorruptedOfflineActivities()
         const offSessions = await getOfflineSessionsByCourse(courseId)
         if (!offSessions || offSessions.length === 0 || !isMounted) return
 

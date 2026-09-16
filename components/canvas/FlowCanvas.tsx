@@ -661,6 +661,7 @@ function RectangleOverlays({ nodes }: { nodes: Node[] }) {
 
 function FlowCanvasInner({
   activityId,
+  sessionId,
   activityTitle,
   activityOrder,
   courseId,
@@ -680,6 +681,12 @@ function FlowCanvasInner({
   const updateNodeInternals = useUpdateNodeInternals()
   const [nodes, setNodes, onNodesChange] = useNodesState(blocksToNodes(blocks))
   const [edges, setEdges, onEdgesChange] = useEdgesState<EdgeData>([])
+
+  // Keep nodes & edges synchronized if activityId or blocks changes
+  useEffect(() => {
+    setNodes(blocksToNodes(blocks))
+    setEdges([])
+  }, [activityId, blocks, setNodes, setEdges])
 
   // Ensure all node handles are measured accurately at resting bounds after mount & animations
   useEffect(() => {
@@ -1213,10 +1220,10 @@ function FlowCanvasInner({
 
   // ── Auto-cache activity to IndexedDB for offline access ────────────────────
   useEffect(() => {
-    if (activityId && blocks && blocks.length > 0) {
+    if (activityId && blocks && blocks.length > 0 && sessionId && sessionId.trim() !== '') {
       saveActivity({
         id: activityId,
-        session_id: '',
+        session_id: sessionId,
         titulo: activityTitle || 'Actividad',
         enunciado: enunciado || null,
         resultado_esperado: resultadoEsperado || null,
@@ -1233,6 +1240,7 @@ function FlowCanvasInner({
     }
   }, [
     activityId,
+    sessionId,
     blocks,
     connections,
     activityTitle,

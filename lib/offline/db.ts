@@ -531,6 +531,7 @@ export async function getCourseOfflineStatus(cursoId: string): Promise<{
   activitiesCount: number
 }> {
   try {
+    await repairCorruptedOfflineActivities()
     const db = await openDB()
     const course = await new Promise<any>((resolve) => {
       const tx = db.transaction('courses', 'readonly')
@@ -561,6 +562,7 @@ export async function getSessionOfflineStatus(sessionId: string): Promise<{
   activitiesCount: number
 }> {
   try {
+    await repairCorruptedOfflineActivities()
     const acts = await getOfflineActivitiesBySession(sessionId)
     return {
       isDownloaded: acts.length > 0,

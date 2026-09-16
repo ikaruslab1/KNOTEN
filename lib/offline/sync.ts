@@ -258,7 +258,7 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
       })
     )
 
-    // Pre-cache into Cache API in background (shells for instant navigation)
+    // Pre-cache into Cache API in background (shells and exact pages for instant navigation)
     if ('caches' in window) {
       ;(async () => {
         try {
@@ -269,13 +269,14 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
             await cache.put('/curso-shell', courseRes.clone())
           }
 
-          if (activities.length > 0) {
-            const firstAct = activities[0]
-            const actRes = await fetch(`/actividad/${firstAct.id}`)
-            if (actRes.ok) {
-              await cache.put(`/actividad/${firstAct.id}`, actRes.clone())
-              await cache.put('/actividad-shell', actRes.clone())
-            }
+          for (const act of activities) {
+            try {
+              const actRes = await fetch(`/actividad/${act.id}`)
+              if (actRes.ok) {
+                await cache.put(`/actividad/${act.id}`, actRes.clone())
+                await cache.put('/actividad-shell', actRes.clone())
+              }
+            } catch {}
           }
         } catch (cacheErr) {
           console.warn('Cache API precaching error:', cacheErr)
@@ -352,16 +353,19 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
       })
     )
 
-    // Pre-cache into Cache API in background (shell for instant offline navigation)
+    // Pre-cache into Cache API in background (shells and exact pages for instant offline navigation)
     if ('caches' in window && activities.length > 0) {
       ;(async () => {
         try {
           const cache = await window.caches.open(OFFLINE_CACHE_NAME)
-          const firstAct = activities[0]
-          const actRes = await fetch(`/actividad/${firstAct.id}`)
-          if (actRes.ok) {
-            await cache.put(`/actividad/${firstAct.id}`, actRes.clone())
-            await cache.put('/actividad-shell', actRes.clone())
+          for (const act of activities) {
+            try {
+              const actRes = await fetch(`/actividad/${act.id}`)
+              if (actRes.ok) {
+                await cache.put(`/actividad/${act.id}`, actRes.clone())
+                await cache.put('/actividad-shell', actRes.clone())
+              }
+            } catch {}
           }
         } catch (cacheErr) {
           console.warn('Cache API precaching error:', cacheErr)
