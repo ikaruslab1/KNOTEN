@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v7'
+const CACHE_NAME = 'knoten-cache-v8'
 
 const SHELL_ASSETS = [
   '/',
@@ -9,7 +9,7 @@ const SHELL_ASSETS = [
 ]
 
 // Fast fetch with AbortController timeout to prevent hanging on PC/Windows TCP timeouts (10-21s)
-function fetchWithTimeout(request, timeoutMs = 1500) {
+function fetchWithTimeout(request, timeoutMs = 1200) {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return Promise.reject(new Error('Device is offline'))
   }
@@ -118,7 +118,7 @@ self.addEventListener('fetch', (event) => {
     }
 
     event.respondWith(
-      fetchWithTimeout(request, 2000).catch(() => {
+      fetchWithTimeout(request, 1500).catch(() => {
         return new Response(JSON.stringify({ error: 'offline', offline: true }), {
           status: 503,
           headers: { 'Content-Type': 'application/json' },
@@ -131,32 +131,30 @@ self.addEventListener('fetch', (event) => {
   // ── 2. Next.js RSC payload requests ──────────────────────────────────────────
   const isRSC = url.searchParams.has('_rsc') || request.headers.get('RSC')
   if (isRSC) {
-    if (isOffline) {
-      event.respondWith(
-        caches.match(request).then((cached) => {
-          if (cached) return cached
-          // Instruct Next.js client router to perform a full document navigation,
-          // which will be handled immediately by our offline App Shell below!
-          return new Response('', { status: 503, statusText: 'Offline' })
-        })
-      )
-      return
-    }
-
     event.respondWith(
-      fetchWithTimeout(request, 4000)
-        .then((response) => {
+      (async () => {
+        // 1. Check exact match in cache
+        const cached = await caches.match(request)
+        if (cached) return cached
+
+        // 2. If offline, redirect client router to full document navigation
+        if (isOffline) {
+          return Response.redirect(url.pathname, 303)
+        }
+
+        // 3. Online: fast fetch with short timeout
+        try {
+          const response = await fetchWithTimeout(request, 1200)
           if (response.ok) {
             const clone = response.clone()
             caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
           }
           return response
-        })
-        .catch(async () => {
-          const cached = await caches.match(request)
-          if (cached) return cached
-          return new Response('', { status: 503, statusText: 'Offline' })
-        })
+        } catch {
+          // Network failed: redirect to document navigation so offline shell renders
+          return Response.redirect(url.pathname, 303)
+        }
+      })()
     )
     return
   }
@@ -168,7 +166,7 @@ self.addEventListener('fetch', (event) => {
       const cached = await caches.match(request)
       if (cached) return cached
 
-      // 2. If navigating to an activity URL while offline, return the activity shell or any cached activity page
+      // 2. If navigating to an activity URL while offline, return activity shell or any cached activity page
       if (url.pathname.startsWith('/actividad/')) {
         const shell = await caches.match('/actividad-shell')
         if (shell) return shell
@@ -202,11 +200,15 @@ self.addEventListener('fetch', (event) => {
         if (root) return root
       }
 
-      // 5. Fallback to offline.html if cached
+      // 5. Universal fallback: serve root app shell '/' so React client hydrates from IndexedDB!
+      const rootFallback = await caches.match('/')
+      if (rootFallback) return rootFallback
+
+      // 6. Fallback to offline.html if cached
       const fallback = await caches.match('/offline.html')
       if (fallback) return fallback
 
-      // 6. Safe inline fallback document
+      // 7. Safe inline fallback document
       return new Response(
         `<!DOCTYPE html>
 <html lang="es">
@@ -244,9 +246,9 @@ self.addEventListener('fetch', (event) => {
       return
     }
 
-    // Online: Fast network race with 5s timeout, then fall back immediately to cache
+    // Online: Fast network race with 1200ms timeout, then fall back immediately to cache
     event.respondWith(
-      fetchWithTimeout(request, 5000)
+      fetchWithTimeout(request, 1200)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone()

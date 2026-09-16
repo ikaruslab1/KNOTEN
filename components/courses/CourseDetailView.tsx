@@ -9,7 +9,10 @@ import {
   OfflineCourse,
   getOfflineSessionsByCourse,
   getOfflineActivitiesBySession,
+  saveCourses,
+  saveSessions,
 } from '@/lib/offline/db'
+import { isOnlineSync, setKnownOffline } from '@/lib/offline/connectivity'
 import { createClient } from '@/lib/supabase/client'
 import CourseOfflineControls from '@/components/pwa/CourseOfflineControls'
 import CourseSessionsView, { SessionItem } from './CourseSessionsView'
@@ -66,6 +69,31 @@ export default function CourseDetailView({
         setCourse(initialCourse)
         setIsLoading(false)
       }
+      // Auto-persist course and sessions to IndexedDB in background
+      ;(async () => {
+        try {
+          await saveCourses([{
+            id: initialCourse.id,
+            nombre: initialCourse.nombre,
+            imagen_url: initialCourse.imagen_url,
+            profesor_id: initialCourse.profesor_id,
+          }])
+          if (initialCourse.sessions && initialCourse.sessions.length > 0) {
+            await saveSessions(
+              initialCourse.sessions.map((s) => ({
+                id: s.id,
+                curso_id: initialCourse.id,
+                nombre: s.nombre,
+                tipo: s.tipo,
+                orden: s.orden ?? 0,
+                fecha_liberacion: s.fecha_liberacion,
+              }))
+            )
+          }
+        } catch (e) {
+          console.warn('Could not auto-persist course to IndexedDB:', e)
+        }
+      })()
       return
     }
 
@@ -120,7 +148,7 @@ export default function CourseDetailView({
       }
 
       // 4. Fetch directly from Supabase on client if not in IndexedDB (when online)
-      if (typeof navigator === 'undefined' || navigator.onLine) {
+      if (isOnlineSync()) {
         try {
           const supabase = createClient()
           const { data: rawCourse, error } = await supabase
@@ -147,18 +175,45 @@ export default function CourseDetailView({
             .maybeSingle()
 
           if (rawCourse && isMounted) {
-            setCourse({
+            const resolvedCourse: CourseData = {
               id: rawCourse.id,
               nombre: rawCourse.nombre,
               imagen_url: rawCourse.imagen_url,
               profesor_id: rawCourse.profesor_id,
               sessions: (rawCourse.sessions as any) ?? [],
-            })
+            }
+            setCourse(resolvedCourse)
             setIsLoading(false)
+
+            // Auto-persist newly fetched course and sessions to IndexedDB
+            ;(async () => {
+              try {
+                await saveCourses([{
+                  id: rawCourse.id,
+                  nombre: rawCourse.nombre,
+                  imagen_url: rawCourse.imagen_url,
+                  profesor_id: rawCourse.profesor_id,
+                }])
+                const rawSessions = (rawCourse.sessions as any[]) ?? []
+                if (rawSessions.length > 0) {
+                  await saveSessions(
+                    rawSessions.map((s) => ({
+                      id: s.id,
+                      curso_id: rawCourse.id,
+                      nombre: s.nombre,
+                      tipo: s.tipo,
+                      orden: s.orden ?? 0,
+                      fecha_liberacion: s.fecha_liberacion,
+                    }))
+                  )
+                }
+              } catch {}
+            })()
             return
           }
         } catch (err) {
           console.warn('Could not fetch course client-side:', err)
+          setKnownOffline()
         }
       }
 
@@ -196,12 +251,22 @@ export default function CourseDetailView({
         <div className="w-12 h-12 rounded-2xl bg-zinc-100 flex items-center justify-center mx-auto mb-4 text-zinc-400">
           <BookOpen className="w-6 h-6" />
         </div>
-        <h2 className="text-2xl font-bold text-zinc-800">Curso no encontrado</h2>
+        <h2 className="text-2xl font-bold text-zinc-800">
+          {!isOnlineSync() ? 'Curso no disponible sin conexión' : 'Curso no encontrado'}
+        </h2>
         <p className="text-sm text-zinc-500 mt-2">
-          El curso solicitado no existe o no ha sido descargado para uso sin conexión.
+          {!isOnlineSync()
+            ? 'Este curso no ha sido descargado para su uso sin conexión. Conéctate a internet para sincronizarlo.'
+            : 'El curso solicitado no existe o fue eliminado.'}
         </p>
         <Link
           href="/"
+          onClick={(e) => {
+            if (!isOnlineSync()) {
+              e.preventDefault()
+              window.location.assign('/')
+            }
+          }}
           className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-zinc-900 text-white text-sm font-semibold hover:bg-zinc-800 transition-colors"
         >
           <ChevronLeft className="w-4 h-4" />

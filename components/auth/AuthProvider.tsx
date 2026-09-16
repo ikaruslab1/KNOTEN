@@ -11,6 +11,8 @@ import {
 } from '@/lib/offline/auth-session'
 import { createClient } from '@/lib/supabase/client'
 
+import { isOnlineSync, setKnownOffline } from '@/lib/offline/connectivity'
+
 interface AuthContextType {
   user: OfflineUser | null
   profile: OfflineUserProfile | null
@@ -37,9 +39,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<OfflineUser | null>(null)
   const [profile, setProfile] = useState<OfflineUserProfile | null>(null)
   const [isLoading, setIsLoading] = useState(true)
-  const [isOffline, setIsOffline] = useState(
-    typeof navigator !== 'undefined' ? !navigator.onLine : false
-  )
+  const [isOffline, setIsOffline] = useState(!isOnlineSync())
 
   const applyStoredSession = useCallback(() => {
     const stored = getStoredOfflineSession()
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Sync with Supabase on initial load or reconnection
   const syncWithSupabase = useCallback(async () => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (!isOnlineSync()) {
       // Offline: stick with stored session without network calls
       applyStoredSession()
       setIsLoading(false)
@@ -97,6 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.warn('Auth sync error, relying on offline session:', err)
+      setKnownOffline()
+      setIsOffline(true)
       applyStoredSession()
     } finally {
       setIsLoading(false)

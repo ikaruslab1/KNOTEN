@@ -5,7 +5,8 @@ import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { BookOpen, ArrowRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getOfflineCourses } from '@/lib/offline/db'
+import { getOfflineCourses, saveCourses } from '@/lib/offline/db'
+import { navigateSafely } from '@/lib/offline/connectivity'
 
 interface Professor {
   nombre: string
@@ -29,11 +30,27 @@ export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
   const [isTransitioning, setIsTransitioning] = useState(false)
   const router = useRouter()
 
-  // Load offline courses from IndexedDB if SSR courses was empty (e.g. offline PC)
+  // Load offline courses from IndexedDB if SSR courses was empty; auto-persist if present
   useEffect(() => {
     let isMounted = true
     if (courses && courses.length > 0) {
       setLocalCourses(courses)
+      // Auto-persist courses to IndexedDB so they are immediately available offline!
+      ;(async () => {
+        try {
+          await saveCourses(
+            courses.map((c) => ({
+              id: c.id,
+              nombre: c.nombre,
+              imagen_url: c.imagen_url,
+              profesor_id: '',
+              profesor_nombre: c.profiles
+                ? `${c.profiles.nombre} ${c.profiles.apellido_paterno}`
+                : undefined,
+            }))
+          )
+        } catch {}
+      })()
       return
     }
 
@@ -46,7 +63,12 @@ export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
               id: c.id,
               nombre: c.nombre,
               imagen_url: c.imagen_url,
-              profiles: null,
+              profiles: c.profesor_nombre
+                ? {
+                    nombre: c.profesor_nombre,
+                    apellido_paterno: '',
+                  }
+                : null,
             }))
           )
         }
@@ -83,31 +105,7 @@ export default function CourseIndexGrid({ courses }: CourseIndexGridProps) {
     setIsTransitioning(true)
 
     const targetUrl = `/curso/${courseId}`
-
-    // If offline, SPA router cannot fetch Next.js RSC payload; perform document navigation
-    // so Service Worker serves the offline app shell instantly!
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setTimeout(() => {
-        window.location.assign(targetUrl)
-      }, 250)
-      return
-    }
-
-    // Online: attempt router.push, with timeout fallback to window.location.assign
-    setTimeout(() => {
-      try {
-        router.push(targetUrl)
-      } catch {
-        window.location.assign(targetUrl)
-      }
-    }, 320)
-
-    // Safety fallback: if router.push stalls or fails, force document navigation
-    setTimeout(() => {
-      if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
-        window.location.assign(targetUrl)
-      }
-    }, 650)
+    navigateSafely(targetUrl, router, 250)
   }
 
   if (localCourses.length === 0) {

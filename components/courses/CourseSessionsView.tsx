@@ -7,6 +7,7 @@ import OfflineSessionBadge from '@/components/pwa/OfflineSessionBadge'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/components/auth/AuthProvider'
 import { getOfflineSessionsByCourse, getOfflineActivitiesBySession, repairCorruptedOfflineActivities } from '@/lib/offline/db'
+import { navigateSafely } from '@/lib/offline/connectivity'
 
 interface Activity {
   id: string
@@ -126,30 +127,7 @@ export default function CourseSessionsView({
     setSelectedSessionId(session.id)
     setIsTransitioning(true)
 
-    // If offline, SPA router cannot fetch Next.js RSC payload; perform document navigation
-    // so Service Worker serves the offline activity shell instantly!
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setTimeout(() => {
-        window.location.assign(href)
-      }, 250)
-      return
-    }
-
-    // Online: attempt router.push, with timeout fallback to window.location.assign
-    setTimeout(() => {
-      try {
-        router.push(href)
-      } catch {
-        window.location.assign(href)
-      }
-    }, 320)
-
-    // Safety fallback: if router.push stalls or fails, force document navigation
-    setTimeout(() => {
-      if (typeof window !== 'undefined' && window.location.pathname !== href) {
-        window.location.assign(href)
-      }
-    }, 650)
+    navigateSafely(href, router, 250)
   }
 
   const renderSessionCard = (session: SessionItem, index: number) => {

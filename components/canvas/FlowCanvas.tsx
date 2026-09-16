@@ -42,6 +42,7 @@ import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
 import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput } from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
+import { navigateSafely, isOnlineSync } from "@/lib/offline/connectivity"
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1162,20 +1163,7 @@ function FlowCanvasInner({
       // Navigate after exit animation completes
       setTimeout(() => {
         const targetUrl = `/actividad/${targetId}`
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-          window.location.assign(targetUrl)
-          return
-        }
-        try {
-          router.push(targetUrl)
-        } catch {
-          window.location.assign(targetUrl)
-        }
-        setTimeout(() => {
-          if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
-            window.location.assign(targetUrl)
-          }
-        }, 500)
+        navigateSafely(targetUrl, router)
       }, 300)
     },
     [activityId, router, setNodes]
@@ -1766,7 +1754,7 @@ function FlowCanvasInner({
     }
 
     try {
-      const isDefinitelyOffline = typeof navigator !== 'undefined' && !navigator.onLine
+      const isDefinitelyOffline = !isOnlineSync()
 
       if (isDefinitelyOffline) {
         runOfflineValidation()
@@ -1927,6 +1915,13 @@ function FlowCanvasInner({
         <div className="flex items-center gap-1.5 py-0.5">
           <Link
             href={courseId ? `/curso/${courseId}` : '/'}
+            onClick={(e) => {
+              const target = courseId ? `/curso/${courseId}` : '/'
+              if (!isOnlineSync()) {
+                e.preventDefault()
+                window.location.assign(target)
+              }
+            }}
             className="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-white/95 backdrop-blur-sm border border-zinc-200 text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100 shadow-sm text-xs font-semibold transition shrink-0"
             title="Volver al curso"
           >

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import FlowCanvas, { Block, BlockConnection } from './FlowCanvas'
 import { getOfflineActivity, getOfflineActivitiesBySession, saveActivity } from '@/lib/offline/db'
 import { getStoredOfflineSession } from '@/lib/offline/auth-session'
+import { isOnlineSync, setKnownOffline } from '@/lib/offline/connectivity'
 import { createClient } from '@/lib/supabase/client'
 import { Loader2, AlertCircle, RefreshCw, Home } from 'lucide-react'
 import Link from 'next/link'
@@ -93,6 +94,25 @@ export default function ActivityView({
           setIsLoading(false)
           setErrorMsg(null)
         }
+        // Auto-persist activity to IndexedDB in background so it's ready if user goes offline!
+        ;(async () => {
+          try {
+            await saveActivity({
+              id: initialActivity.id,
+              session_id: initialActivity.sessionId,
+              titulo: initialActivity.titulo,
+              enunciado: initialActivity.enunciado,
+              resultado_esperado: initialActivity.resultado_esperado,
+              orden: initialActivity.orden,
+              blocks: initialActivity.blocks,
+              connections: initialActivity.connections,
+              curso_id: initialActivity.courseId,
+              curso_nombre: initialActivity.courseName,
+              session_tipo: initialActivity.sessionType,
+              session_nombre: initialActivity.sessionName,
+            } as any)
+          } catch {}
+        })()
         return
       }
 
@@ -146,7 +166,7 @@ export default function ActivityView({
       }
 
       // 4. Fetch directly from Supabase on client if not in IndexedDB (only if online)
-      if (typeof navigator === 'undefined' || navigator.onLine) {
+      if (isOnlineSync()) {
         try {
           const supabase = createClient()
           const { data: act, error } = await supabase
@@ -301,13 +321,14 @@ export default function ActivityView({
         }
         } catch (clientErr) {
           console.warn('Client-side Supabase fetch failed:', clientErr)
+          setKnownOffline()
         }
       }
 
       // 5. Activity not found anywhere or offline failure
       if (isMounted) {
         setIsLoading(false)
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (!isOnlineSync()) {
           setErrorMsg(
             'Esta actividad no está disponible sin conexión. Conéctate a internet para sincronizarla.'
           )
@@ -347,6 +368,12 @@ export default function ActivityView({
           <div className="flex flex-col sm:flex-row gap-2">
             <Link
               href="/"
+              onClick={(e) => {
+                if (!isOnlineSync()) {
+                  e.preventDefault()
+                  window.location.assign('/')
+                }
+              }}
               className="flex-1 inline-flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl bg-zinc-900 text-white text-xs font-semibold hover:bg-zinc-800 transition"
             >
               <Home className="w-4 h-4" />

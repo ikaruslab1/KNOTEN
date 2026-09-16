@@ -10,6 +10,7 @@ import {
   OfflineSession,
   OfflineCourse,
 } from './db'
+import { checkIsOnline, isOnlineSync } from './connectivity'
 
 export interface SyncResult {
   success: boolean
@@ -56,7 +57,8 @@ export async function syncOfflineContent(): Promise<SyncResult> {
   }
 
   // If user is offline, return current offline stats without error
-  if (!navigator.onLine) {
+  const isOnline = await checkIsOnline()
+  if (!isOnline) {
     const stats = await getOfflineDatabaseStats()
     return {
       success: true,
@@ -212,7 +214,8 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
     return { success: false, error: 'Entorno no soportado', activitiesCount: 0, sessionsCount: 0 }
   }
 
-  if (!navigator.onLine) {
+  const isOnline = await checkIsOnline()
+  if (!isOnline) {
     return {
       success: false,
       error: 'Se requiere conexión a internet para descargar el curso',
@@ -258,16 +261,22 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
       })
     )
 
-    // Pre-cache into Cache API in background (shells and exact pages for instant navigation)
+    // Pre-cache into Cache API in background (shells, exact pages, and RSC payloads for instant offline navigation)
     if ('caches' in window) {
       ;(async () => {
         try {
           const cache = await window.caches.open(OFFLINE_CACHE_NAME)
-          const courseRes = await fetch(`/curso/${cursoId}`)
-          if (courseRes.ok) {
-            await cache.put(`/curso/${cursoId}`, courseRes.clone())
-            await cache.put('/curso-shell', courseRes.clone())
-          }
+          try {
+            const courseRes = await fetch(`/curso/${cursoId}`)
+            if (courseRes.ok) {
+              await cache.put(`/curso/${cursoId}`, courseRes.clone())
+              await cache.put('/curso-shell', courseRes.clone())
+            }
+            const courseRsc = await fetch(`/curso/${cursoId}?_rsc=1`, { headers: { RSC: '1' } })
+            if (courseRsc.ok) {
+              await cache.put(`/curso/${cursoId}?_rsc=1`, courseRsc.clone())
+            }
+          } catch {}
 
           for (const act of activities) {
             try {
@@ -275,6 +284,10 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
               if (actRes.ok) {
                 await cache.put(`/actividad/${act.id}`, actRes.clone())
                 await cache.put('/actividad-shell', actRes.clone())
+              }
+              const actRsc = await fetch(`/actividad/${act.id}?_rsc=1`, { headers: { RSC: '1' } })
+              if (actRsc.ok) {
+                await cache.put(`/actividad/${act.id}?_rsc=1`, actRsc.clone())
               }
             } catch {}
           }
@@ -308,7 +321,8 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
     return { success: false, error: 'Entorno no soportado', activitiesCount: 0 }
   }
 
-  if (!navigator.onLine) {
+  const isOnline = await checkIsOnline()
+  if (!isOnline) {
     return {
       success: false,
       error: 'Se requiere conexión a internet para descargar la sesión',
