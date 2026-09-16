@@ -25,6 +25,74 @@ export interface SyncResult {
   timestamp: string
 }
 
+const ASSET_REGEX = /\/_next\/static\/[^\s"'()<>,\\;]+/g
+
+/**
+ * Discovers and precaches all JavaScript chunks, CSS stylesheets, and font files
+ * referenced within an HTML document or Next.js RSC payload into Cache Storage.
+ */
+export async function precacheExtractedAssets(text: string, cache: Cache): Promise<void> {
+  const matches = text.match(ASSET_REGEX) || []
+  if (!matches.length) return
+
+  const uniqueAssets = Array.from(
+    new Set(matches.map((u) => u.split('?')[0].split('#')[0]))
+  ).filter(
+    (u) =>
+      u.endsWith('.js') ||
+      u.endsWith('.css') ||
+      u.endsWith('.woff2') ||
+      u.endsWith('.woff') ||
+      u.endsWith('.ico')
+  )
+
+  await Promise.allSettled(
+    uniqueAssets.map(async (assetUrl) => {
+      try {
+        const cached = await cache.match(assetUrl)
+        if (cached) return
+        const r = await fetch(assetUrl)
+        if (r.ok) {
+          await cache.put(assetUrl, r)
+        }
+      } catch {}
+    })
+  )
+}
+
+/**
+ * Precaches an HTML document, its RSC payload, and all static JS/CSS assets referenced in either.
+ */
+export async function precachePageAndAssets(
+  url: string,
+  cache: Cache,
+  shellFallbackKey?: string
+): Promise<void> {
+  // 1. Fetch & cache HTML document + extract all static chunks
+  try {
+    const res = await fetch(url)
+    if (res.ok) {
+      await cache.put(url, res.clone())
+      if (shellFallbackKey) {
+        await cache.put(shellFallbackKey, res.clone())
+      }
+      const htmlText = await res.text()
+      await precacheExtractedAssets(htmlText, cache)
+    }
+  } catch {}
+
+  // 2. Fetch & cache RSC flight payload + extract chunks
+  try {
+    const rscUrl = url.includes('?') ? `${url}&_rsc=1` : `${url}?_rsc=1`
+    const rscRes = await fetch(rscUrl, { headers: { RSC: '1' } })
+    if (rscRes.ok) {
+      await cache.put(rscUrl, rscRes.clone())
+      const rscText = await rscRes.text()
+      await precacheExtractedAssets(rscText, cache)
+    }
+  } catch {}
+}
+
 let isSyncing = false
 
 export async function syncOfflineContent(): Promise<SyncResult> {
@@ -134,32 +202,17 @@ export async function syncOfflineContent(): Promise<SyncResult> {
       total_courses: finalStats.coursesCount,
     })
 
-    // Pre-cache activity URLs and shells in Cache API in background
+    // Pre-cache activity URLs, shells, and all static JS/CSS chunks in Cache API in background
     if (typeof window !== 'undefined' && 'caches' in window) {
       ;(async () => {
         try {
           const cache = await window.caches.open(OFFLINE_CACHE_NAME)
 
-          // Precache first course shell
           if (incomingCourses.length > 0) {
-            try {
-              const courseRes = await fetch(`/curso/${incomingCourses[0].id}`)
-              if (courseRes.ok) {
-                await cache.put(`/curso/${incomingCourses[0].id}`, courseRes.clone())
-                await cache.put('/curso-shell', courseRes.clone())
-              }
-            } catch {}
+            await precachePageAndAssets(`/curso/${incomingCourses[0].id}`, cache, '/curso-shell')
           }
-
-          // Precache first activity shell
           if (incomingActivities.length > 0) {
-            try {
-              const actRes = await fetch(`/actividad/${incomingActivities[0].id}`)
-              if (actRes.ok) {
-                await cache.put(`/actividad/${incomingActivities[0].id}`, actRes.clone())
-                await cache.put('/actividad-shell', actRes.clone())
-              }
-            } catch {}
+            await precachePageAndAssets(`/actividad/${incomingActivities[0].id}`, cache, '/actividad-shell')
           }
         } catch (e) {
           console.warn('Error during offline page pre-caching:', e)
@@ -261,35 +314,15 @@ export async function downloadCourseOffline(cursoId: string): Promise<{
       })
     )
 
-    // Pre-cache into Cache API in background (shells, exact pages, and RSC payloads for instant offline navigation)
+    // Pre-cache into Cache API in background (shells, exact pages, RSC payloads, and ALL referenced JS/CSS chunks)
     if ('caches' in window) {
       ;(async () => {
         try {
           const cache = await window.caches.open(OFFLINE_CACHE_NAME)
-          try {
-            const courseRes = await fetch(`/curso/${cursoId}`)
-            if (courseRes.ok) {
-              await cache.put(`/curso/${cursoId}`, courseRes.clone())
-              await cache.put('/curso-shell', courseRes.clone())
-            }
-            const courseRsc = await fetch(`/curso/${cursoId}?_rsc=1`, { headers: { RSC: '1' } })
-            if (courseRsc.ok) {
-              await cache.put(`/curso/${cursoId}?_rsc=1`, courseRsc.clone())
-            }
-          } catch {}
+          await precachePageAndAssets(`/curso/${cursoId}`, cache, '/curso-shell')
 
           for (const act of activities) {
-            try {
-              const actRes = await fetch(`/actividad/${act.id}`)
-              if (actRes.ok) {
-                await cache.put(`/actividad/${act.id}`, actRes.clone())
-                await cache.put('/actividad-shell', actRes.clone())
-              }
-              const actRsc = await fetch(`/actividad/${act.id}?_rsc=1`, { headers: { RSC: '1' } })
-              if (actRsc.ok) {
-                await cache.put(`/actividad/${act.id}?_rsc=1`, actRsc.clone())
-              }
-            } catch {}
+            await precachePageAndAssets(`/actividad/${act.id}`, cache, '/actividad-shell')
           }
         } catch (cacheErr) {
           console.warn('Cache API precaching error:', cacheErr)
@@ -367,19 +400,13 @@ export async function downloadSessionOffline(sessionId: string): Promise<{
       })
     )
 
-    // Pre-cache into Cache API in background (shells and exact pages for instant offline navigation)
+    // Pre-cache into Cache API in background (shells, exact pages, RSC payloads, and ALL referenced JS/CSS chunks)
     if ('caches' in window && activities.length > 0) {
       ;(async () => {
         try {
           const cache = await window.caches.open(OFFLINE_CACHE_NAME)
           for (const act of activities) {
-            try {
-              const actRes = await fetch(`/actividad/${act.id}`)
-              if (actRes.ok) {
-                await cache.put(`/actividad/${act.id}`, actRes.clone())
-                await cache.put('/actividad-shell', actRes.clone())
-              }
-            } catch {}
+            await precachePageAndAssets(`/actividad/${act.id}`, cache, '/actividad-shell')
           }
         } catch (cacheErr) {
           console.warn('Cache API precaching error:', cacheErr)

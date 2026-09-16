@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v8'
+const CACHE_NAME = 'knoten-cache-v9'
 
 const SHELL_ASSETS = [
   '/',
@@ -27,8 +27,7 @@ function fetchWithTimeout(request, timeoutMs = 1200) {
     })
 }
 
-// Install event: precache shell assets + ALL Next.js static chunks
-// sw-cache-manifest.json is generated at build time by scripts/generate-sw-manifest.mjs
+// Install event: precache shell assets + dynamically discover & precache all Next.js static chunks
 self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
@@ -36,32 +35,53 @@ self.addEventListener('install', (event) => {
 
       // 1. Cache shell pages (non-fatal if some fail)
       await Promise.allSettled(
-        SHELL_ASSETS.map((url) =>
-          fetch(url)
-            .then((r) => { if (r.ok) return cache.put(url, r) })
-            .catch(() => {})
-        )
+        SHELL_ASSETS.map(async (url) => {
+          try {
+            const r = await fetch(url)
+            if (r.ok) await cache.put(url, r)
+          } catch {}
+        })
       )
 
-      // 2. Read static manifest (generated at build time — always available on CDN)
+      // 2. Discover static chunks directly from live entry point HTML ('/')
+      const assetRegex = /\/_next\/static\/[^\s"'()<>,\\;]+/g
+      const discoveredAssets = new Set()
+
+      try {
+        const rootRes = await fetch('/', { cache: 'no-cache' })
+        if (rootRes.ok) {
+          const rootHtml = await rootRes.text()
+          const matches = rootHtml.match(assetRegex) || []
+          for (const m of matches) {
+            const clean = m.split('?')[0].split('#')[0]
+            if (clean.endsWith('.js') || clean.endsWith('.css') || clean.endsWith('.woff2') || clean.endsWith('.woff')) {
+              discoveredAssets.add(clean)
+            }
+          }
+        }
+      } catch {}
+
+      // Also read sw-cache-manifest.json if available
       try {
         const manifestRes = await fetch('/sw-cache-manifest.json', { cache: 'no-store' })
         if (manifestRes.ok) {
           const { assets = [] } = await manifestRes.json()
-          // Cache all chunks in parallel, ignoring individual failures
-          await Promise.allSettled(
-            assets.map((url) =>
-              fetch(url)
-                .then((r) => { if (r.ok) return cache.put(url, r) })
-                .catch(() => {})
-            )
-          )
-          console.log(`[SW] Precached ${assets.length} static assets.`)
+          for (const a of assets) {
+            discoveredAssets.add(a)
+          }
         }
-      } catch (e) {
-        // Manifest fetch failed — app will still work online and cache assets lazily
-        console.warn('[SW] Could not fetch sw-cache-manifest.json:', e)
-      }
+      } catch {}
+
+      // Cache all discovered chunks in parallel
+      await Promise.allSettled(
+        Array.from(discoveredAssets).map(async (url) => {
+          try {
+            const r = await fetch(url)
+            if (r.ok) await cache.put(url, r)
+          } catch {}
+        })
+      )
+      console.log(`[SW] Precached ${discoveredAssets.size} static assets on install.`)
 
       await self.skipWaiting()
     })()
@@ -252,14 +272,28 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response.ok) {
             const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, clone)
+            caches.open(CACHE_NAME).then(async (cache) => {
+              await cache.put(request, clone)
               if (url.pathname.startsWith('/actividad/')) {
-                cache.put('/actividad-shell', response.clone())
+                await cache.put('/actividad-shell', response.clone())
               }
               if (url.pathname.startsWith('/curso/')) {
-                cache.put('/curso-shell', response.clone())
+                await cache.put('/curso-shell', response.clone())
               }
+              // Proactively scan HTML and precache any referenced Next.js chunks in background
+              try {
+                const text = await response.clone().text()
+                const matches = text.match(/\/_next\/static\/[^\s"'()<>,\\;]+/g) || []
+                const unique = Array.from(new Set(matches.map((u) => u.split('?')[0].split('#')[0])))
+                for (const u of unique) {
+                  if (u.endsWith('.js') || u.endsWith('.css') || u.endsWith('.woff2')) {
+                    const has = await cache.match(u)
+                    if (!has) {
+                      fetch(u).then((r) => { if (r.ok) cache.put(u, r) }).catch(() => {})
+                    }
+                  }
+                }
+              } catch {}
             })
           }
           return response
@@ -289,6 +323,18 @@ self.addEventListener('fetch', (event) => {
 
       // Not in cache
       if (isOffline) {
+        if (
+          url.pathname.endsWith('.ico') ||
+          url.pathname.endsWith('.png') ||
+          url.pathname.endsWith('.jpg') ||
+          url.pathname.endsWith('.svg') ||
+          url.pathname.endsWith('.webp')
+        ) {
+          return new Response('', { status: 200, headers: { 'Content-Type': 'image/x-icon' } })
+        }
+        if (url.pathname.endsWith('.css')) {
+          return new Response('', { status: 200, headers: { 'Content-Type': 'text/css' } })
+        }
         return new Response('', { status: 503, statusText: 'Offline Asset Not Cached' })
       }
 

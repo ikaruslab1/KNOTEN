@@ -11,7 +11,9 @@ import {
   getOfflineActivitiesBySession,
   saveCourses,
   saveSessions,
+  OFFLINE_CACHE_NAME,
 } from '@/lib/offline/db'
+import { precachePageAndAssets } from '@/lib/offline/sync'
 import { isOnlineSync, setKnownOffline } from '@/lib/offline/connectivity'
 import { createClient } from '@/lib/supabase/client'
 import CourseOfflineControls from '@/components/pwa/CourseOfflineControls'
@@ -89,6 +91,13 @@ export default function CourseDetailView({
                 fecha_liberacion: s.fecha_liberacion,
               }))
             )
+            // Pre-warm the first activity's chunks into Cache Storage in background if online
+            const firstActId = initialCourse.sessions[0]?.activities?.[0]?.id
+            if (firstActId && typeof window !== 'undefined' && 'caches' in window && isOnlineSync()) {
+              window.caches.open(OFFLINE_CACHE_NAME).then((cache) => {
+                precachePageAndAssets(`/actividad/${firstActId}`, cache, '/actividad-shell')
+              }).catch(() => {})
+            }
           }
         } catch (e) {
           console.warn('Could not auto-persist course to IndexedDB:', e)
