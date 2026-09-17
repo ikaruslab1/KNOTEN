@@ -41,6 +41,10 @@ export default function DeleteSessionTrigger({
 
       if (deleteErr) throw deleteErr
 
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('knoten:sessions-updated'))
+      }
+
       setOpen(false)
       onSuccess?.()
       router.refresh()

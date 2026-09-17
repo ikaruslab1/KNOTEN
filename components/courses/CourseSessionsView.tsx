@@ -31,12 +31,17 @@ interface CourseSessionsViewProps {
 }
 
 function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('es-MX', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
+  try {
+    return new Date(dateStr).toLocaleDateString('es-MX', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      timeZone: 'UTC',
+    })
+  } catch {
+    return dateStr
+  }
 }
 
 function isInFuture(dateStr: string | null): boolean {
@@ -50,12 +55,17 @@ export default function CourseSessionsView({
   repasoSessions,
   isProfessor,
 }: CourseSessionsViewProps) {
+  const [mounted, setMounted] = useState(false)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const router = useRouter()
 
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
   const { profile: authProfile } = useAuth()
-  const effectiveIsProfessor = isProfessor || authProfile?.rol === 'profesor'
+  const effectiveIsProfessor = mounted ? (isProfessor || authProfile?.rol === 'profesor') : isProfessor
 
   const [localClase, setLocalClase] = useState<SessionItem[]>(claseSessions)
   const [localRepaso, setLocalRepaso] = useState<SessionItem[]>(repasoSessions)
@@ -184,9 +194,9 @@ export default function CourseSessionsView({
             <Lock className="w-4 h-4 shrink-0 text-zinc-500 mt-1" />
           </div>
           {session.fecha_liberacion && (
-            <p className="text-xs font-medium text-zinc-500 flex items-center gap-1.5 mt-4">
+            <p className="text-xs font-medium text-zinc-500 flex items-center gap-1.5 mt-4" suppressHydrationWarning>
               <Calendar className="w-3.5 h-3.5" />
-              Clase disponible el {formatDate(session.fecha_liberacion)}
+              <span>Clase disponible el {formatDate(session.fecha_liberacion)}</span>
             </p>
           )}
         </div>
@@ -221,9 +231,9 @@ export default function CourseSessionsView({
               <OfflineSessionBadge sessionId={session.id} />
             </div>
             {session.fecha_liberacion && (
-              <p className="text-xs text-zinc-500 mt-2 flex items-center gap-1.5">
+              <p className="text-xs text-zinc-500 mt-2 flex items-center gap-1.5" suppressHydrationWarning>
                 <Calendar className="w-3.5 h-3.5 text-zinc-400" />
-                Liberación: {formatDate(session.fecha_liberacion)}
+                <span>Liberación: {formatDate(session.fecha_liberacion)}</span>
               </p>
             )}
           </div>

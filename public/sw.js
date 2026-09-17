@@ -1,4 +1,4 @@
-const CACHE_NAME = 'knoten-cache-v9'
+const CACHE_NAME = 'knoten-cache-v10'
 
 const SHELL_ASSETS = [
   '/',
@@ -153,25 +153,25 @@ self.addEventListener('fetch', (event) => {
   if (isRSC) {
     event.respondWith(
       (async () => {
-        // 1. Check exact match in cache
-        const cached = await caches.match(request)
-        if (cached) return cached
-
-        // 2. If offline, redirect client router to full document navigation
+        // If offline, return exact match in cache or redirect to full document navigation
         if (isOffline) {
+          const cached = await caches.match(request)
+          if (cached) return cached
           return Response.redirect(url.pathname, 303)
         }
 
-        // 3. Online: fast fetch with short timeout
+        // Online: Network-First to guarantee fresh sessions and database data
         try {
-          const response = await fetchWithTimeout(request, 1200)
-          if (response.ok) {
+          const response = await fetchWithTimeout(request, 1500)
+          if (response && response.ok) {
             const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, clone)).catch(() => {})
           }
           return response
         } catch {
-          // Network failed: redirect to document navigation so offline shell renders
+          // Network failed or timed out: fall back to cached RSC if available, else redirect
+          const cached = await caches.match(request)
+          if (cached) return cached
           return Response.redirect(url.pathname, 303)
         }
       })()
@@ -266,23 +266,35 @@ self.addEventListener('fetch', (event) => {
       return
     }
 
-    // Online: Fast network race with 1200ms timeout, then fall back immediately to cache
+    // Online: Fast network race with 1500ms timeout, then fall back immediately to cache
     event.respondWith(
-      fetchWithTimeout(request, 1200)
+      fetchWithTimeout(request, 1500)
         .then((response) => {
-          if (response.ok) {
-            const clone = response.clone()
+          if (response && response.ok) {
+            // Clone synchronously ONCE before returning response to the browser
+            const cloneForCache = response.clone()
             caches.open(CACHE_NAME).then(async (cache) => {
-              await cache.put(request, clone)
-              if (url.pathname.startsWith('/actividad/')) {
-                await cache.put('/actividad-shell', response.clone())
-              }
-              if (url.pathname.startsWith('/curso/')) {
-                await cache.put('/curso-shell', response.clone())
-              }
-              // Proactively scan HTML and precache any referenced Next.js chunks in background
               try {
-                const text = await response.clone().text()
+                // Read text from clone — NEVER touch response which is being streamed to the browser
+                const text = await cloneForCache.text()
+                const headers = new Headers(response.headers)
+
+                const createDocResponse = () =>
+                  new Response(text, {
+                    status: response.status,
+                    statusText: response.statusText,
+                    headers: headers,
+                  })
+
+                await cache.put(request, createDocResponse())
+                if (url.pathname.startsWith('/actividad/')) {
+                  await cache.put('/actividad-shell', createDocResponse())
+                }
+                if (url.pathname.startsWith('/curso/')) {
+                  await cache.put('/curso-shell', createDocResponse())
+                }
+
+                // Proactively scan HTML and precache any referenced Next.js chunks in background
                 const matches = text.match(/\/_next\/static\/[^\s"'()<>,\\;]+/g) || []
                 const unique = Array.from(new Set(matches.map((u) => u.split('?')[0].split('#')[0])))
                 for (const u of unique) {
@@ -293,8 +305,10 @@ self.addEventListener('fetch', (event) => {
                     }
                   }
                 }
-              } catch {}
-            })
+              } catch (err) {
+                console.warn('[SW] Error caching navigation response:', err)
+              }
+            }).catch(() => {})
           }
           return response
         })

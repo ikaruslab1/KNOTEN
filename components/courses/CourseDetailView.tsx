@@ -58,6 +58,71 @@ export default function CourseDetailView({
     }
     const resolvedId = pathCourseId || courseId || initialCourse?.id || ''
 
+    async function revalidateFromSupabase(targetId: string) {
+      if (!isOnlineSync() || !targetId) return
+      try {
+        const supabase = createClient()
+        const { data: rawCourse } = await supabase
+          .from('courses')
+          .select(`
+            id,
+            nombre,
+            imagen_url,
+            profesor_id,
+            sessions (
+              id,
+              nombre,
+              tipo,
+              orden,
+              fecha_liberacion,
+              activities (
+                id,
+                orden
+              )
+            )
+          `)
+          .eq('id', targetId)
+          .order('orden', { referencedTable: 'sessions', ascending: true })
+          .maybeSingle()
+
+        if (rawCourse && isMounted) {
+          const resolvedCourse: CourseData = {
+            id: rawCourse.id,
+            nombre: rawCourse.nombre,
+            imagen_url: rawCourse.imagen_url,
+            profesor_id: rawCourse.profesor_id,
+            sessions: (rawCourse.sessions as any) ?? [],
+          }
+          setCourse(resolvedCourse)
+          setIsLoading(false)
+
+          try {
+            await saveCourses([{
+              id: rawCourse.id,
+              nombre: rawCourse.nombre,
+              imagen_url: rawCourse.imagen_url,
+              profesor_id: rawCourse.profesor_id,
+            }])
+            const rawSessions = (rawCourse.sessions as any[]) ?? []
+            if (rawSessions.length > 0) {
+              await saveSessions(
+                rawSessions.map((s) => ({
+                  id: s.id,
+                  curso_id: rawCourse.id,
+                  nombre: s.nombre,
+                  tipo: s.tipo,
+                  orden: s.orden ?? 0,
+                  fecha_liberacion: s.fecha_liberacion,
+                }))
+              )
+            }
+          } catch {}
+        }
+      } catch (err) {
+        console.warn('Could not revalidate course client-side:', err)
+      }
+    }
+
     // 2. If initialCourse matches resolvedId, is not a shell, and has sessions, use it!
     if (
       initialCourse &&
@@ -103,145 +168,89 @@ export default function CourseDetailView({
           console.warn('Could not auto-persist course to IndexedDB:', e)
         }
       })()
-      return
-    }
 
-    async function resolveCourse() {
-      if (!resolvedId) {
-        if (isMounted) setIsLoading(false)
-        return
+      // Revalidate in background when online to always catch newly created sessions
+      if (isOnlineSync()) {
+        revalidateFromSupabase(resolvedId)
       }
-
-      if (!course || course.id !== resolvedId) {
-        setIsLoading(true)
-      }
-
-      // 3. Check IndexedDB offline cache
-      try {
-        const db = await openDB()
-        const offlineCourse = await new Promise<OfflineCourse | null>((resolve) => {
-          const tx = db.transaction('courses', 'readonly')
-          const req = tx.objectStore('courses').get(resolvedId)
-          req.onsuccess = () => resolve(req.result || null)
-          req.onerror = () => resolve(null)
-        })
-
-        if (offlineCourse && isMounted) {
-          const offSessions = await getOfflineSessionsByCourse(resolvedId)
-          const fullSessions: SessionItem[] = await Promise.all(
-            offSessions.map(async (s) => {
-              const acts = await getOfflineActivitiesBySession(s.id)
-              return {
-                id: s.id,
-                nombre: s.nombre,
-                tipo: s.tipo,
-                orden: s.orden ?? 0,
-                fecha_liberacion: s.fecha_liberacion,
-                activities: acts.map((a) => ({ id: a.id, orden: a.orden })),
-              }
-            })
-          )
-
-          setCourse({
-            id: offlineCourse.id,
-            nombre: offlineCourse.nombre,
-            imagen_url: offlineCourse.imagen_url,
-            profesor_id: offlineCourse.profesor_id,
-            sessions: fullSessions,
-          })
-          setIsLoading(false)
+    } else {
+      async function resolveCourse() {
+        if (!resolvedId) {
+          if (isMounted) setIsLoading(false)
           return
         }
-      } catch (err) {
-        console.warn('Could not read course from IndexedDB:', err)
-      }
 
-      // 4. Fetch directly from Supabase on client if not in IndexedDB (when online)
-      if (isOnlineSync()) {
+        if (!course || course.id !== resolvedId) {
+          setIsLoading(true)
+        }
+
+        // 3. Check IndexedDB offline cache for 0ms initial render
+        let foundInDb = false
         try {
-          const supabase = createClient()
-          const { data: rawCourse, error } = await supabase
-            .from('courses')
-            .select(`
-              id,
-              nombre,
-              imagen_url,
-              profesor_id,
-              sessions (
-                id,
-                nombre,
-                tipo,
-                orden,
-                fecha_liberacion,
-                activities (
-                  id,
-                  orden
-                )
-              )
-            `)
-            .eq('id', resolvedId)
-            .order('orden', { referencedTable: 'sessions', ascending: true })
-            .maybeSingle()
+          const db = await openDB()
+          const offlineCourse = await new Promise<OfflineCourse | null>((resolve) => {
+            const tx = db.transaction('courses', 'readonly')
+            const req = tx.objectStore('courses').get(resolvedId)
+            req.onsuccess = () => resolve(req.result || null)
+            req.onerror = () => resolve(null)
+          })
 
-          if (rawCourse && isMounted) {
-            const resolvedCourse: CourseData = {
-              id: rawCourse.id,
-              nombre: rawCourse.nombre,
-              imagen_url: rawCourse.imagen_url,
-              profesor_id: rawCourse.profesor_id,
-              sessions: (rawCourse.sessions as any) ?? [],
-            }
-            setCourse(resolvedCourse)
-            setIsLoading(false)
-
-            // Auto-persist newly fetched course and sessions to IndexedDB
-            ;(async () => {
-              try {
-                await saveCourses([{
-                  id: rawCourse.id,
-                  nombre: rawCourse.nombre,
-                  imagen_url: rawCourse.imagen_url,
-                  profesor_id: rawCourse.profesor_id,
-                }])
-                const rawSessions = (rawCourse.sessions as any[]) ?? []
-                if (rawSessions.length > 0) {
-                  await saveSessions(
-                    rawSessions.map((s) => ({
-                      id: s.id,
-                      curso_id: rawCourse.id,
-                      nombre: s.nombre,
-                      tipo: s.tipo,
-                      orden: s.orden ?? 0,
-                      fecha_liberacion: s.fecha_liberacion,
-                    }))
-                  )
+          if (offlineCourse && isMounted) {
+            foundInDb = true
+            const offSessions = await getOfflineSessionsByCourse(resolvedId)
+            const fullSessions: SessionItem[] = await Promise.all(
+              offSessions.map(async (s) => {
+                const acts = await getOfflineActivitiesBySession(s.id)
+                return {
+                  id: s.id,
+                  nombre: s.nombre,
+                  tipo: s.tipo,
+                  orden: s.orden ?? 0,
+                  fecha_liberacion: s.fecha_liberacion,
+                  activities: acts.map((a) => ({ id: a.id, orden: a.orden })),
                 }
-              } catch {}
-            })()
-            return
+              })
+            )
+
+            setCourse({
+              id: offlineCourse.id,
+              nombre: offlineCourse.nombre,
+              imagen_url: offlineCourse.imagen_url,
+              profesor_id: offlineCourse.profesor_id,
+              sessions: fullSessions,
+            })
+            setIsLoading(false)
           }
         } catch (err) {
-          console.warn('Could not fetch course client-side:', err)
-          setKnownOffline()
+          console.warn('Could not read course from IndexedDB:', err)
+        }
+
+        // 4. Fetch directly from Supabase on client (when online)
+        if (isOnlineSync()) {
+          await revalidateFromSupabase(resolvedId)
+        } else if (!foundInDb) {
+          if (initialCourse && initialCourse.id === resolvedId && isMounted) {
+            setCourse(initialCourse)
+          }
+          if (isMounted) setIsLoading(false)
         }
       }
 
-      // 5. Fallback: if initialCourse was provided for this ID, use it even if sessions were empty
-      if (initialCourse && initialCourse.id === resolvedId && isMounted) {
-        setCourse(initialCourse)
-        setIsLoading(false)
-        return
-      }
-
-      if (isMounted) {
-        setIsLoading(false)
-      }
+      resolveCourse()
     }
 
-    resolveCourse()
+    // 5. Listen to sessions updated event (e.g. from CreateSessionModal)
+    const handleSessionsUpdated = (e: Event) => {
+      const custom = e as CustomEvent<{ cursoId?: string }>
+      if (!custom.detail?.cursoId || custom.detail.cursoId === resolvedId) {
+        revalidateFromSupabase(resolvedId)
+      }
+    }
+    window.addEventListener('knoten:sessions-updated', handleSessionsUpdated)
 
     return () => {
       isMounted = false
+      window.removeEventListener('knoten:sessions-updated', handleSessionsUpdated)
     }
   }, [courseId, initialCourse])
 

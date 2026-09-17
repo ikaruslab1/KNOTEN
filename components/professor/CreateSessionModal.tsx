@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { saveSessions } from '@/lib/offline/db'
 import DeleteSessionTrigger from '@/components/professor/DeleteSessionTrigger'
 import { cn } from '@/lib/utils'
 
@@ -272,6 +273,24 @@ export default function CreateSessionModal({
 
           if (activitiesError) throw activitiesError
         }
+      }
+
+      // Invalidate SW course cache & notify listening components
+      if (typeof window !== 'undefined') {
+        if ('caches' in window) {
+          try {
+            const cache = await window.caches.open('knoten-cache-v10')
+            const keys = await cache.keys()
+            for (const key of keys) {
+              if (key.url.includes(`/curso/${cursoId}`)) {
+                await cache.delete(key)
+              }
+            }
+          } catch {}
+        }
+        window.dispatchEvent(
+          new CustomEvent('knoten:sessions-updated', { detail: { cursoId } })
+        )
       }
 
       router.refresh()

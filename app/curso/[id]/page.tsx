@@ -2,6 +2,9 @@ import { createClient, getCurrentProfile } from '@/lib/supabase/server';
 import { NavBar } from '@/components/ui/NavBar';
 import CourseDetailView, { CourseData } from '@/components/courses/CourseDetailView';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 export default async function CoursePage({
   params,
 }: {

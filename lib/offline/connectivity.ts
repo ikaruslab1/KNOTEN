@@ -174,7 +174,7 @@ export function navigateSafely(
       if (typeof window !== 'undefined' && window.location.pathname !== targetUrl) {
         window.location.assign(targetUrl)
       }
-    }, 500)
+    }, 3000)
   }
 
   if (delayMs > 0) {
