@@ -19,6 +19,7 @@ type ValidateBody = {
   studentConnections: StudentConnection[]
   studentBlockOrder?: string[]
   reconstructedCode?: string
+  inputs?: string[]
 }
 
 // ── Supabase clients ─────────────────────────────────────────────────────────
@@ -110,7 +111,7 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const { activityId, studentConnections, studentBlockOrder, reconstructedCode } = body
+  const { activityId, studentConnections, studentBlockOrder, reconstructedCode, inputs } = body
 
   if (
     typeof activityId !== 'string' ||
@@ -194,8 +195,8 @@ export async function POST(request: NextRequest) {
 
     // Execute both reference code and student code concurrently
     const [refResult, studentResult] = await Promise.all([
-      executePythonCode(referenceCode),
-      executePythonCode(reconstructedCode),
+      executePythonCode(referenceCode, inputs),
+      executePythonCode(reconstructedCode, inputs),
     ])
 
     const comparison = compareExecutionResults(refResult, studentResult)
@@ -207,9 +208,11 @@ export async function POST(request: NextRequest) {
       (stuStdout === expectedOutput ||
         stuStdout.replace(/\s+/g, '') === expectedOutput.replace(/\s+/g, '') ||
         normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
+        stuStdout.endsWith(expectedOutput) ||
+        stuStdout.split('\n').some((l) => l.trim() === expectedOutput || l.trim().endsWith(expectedOutput)) ||
         (studentResult.state &&
           Object.entries(studentResult.state).some(
-            ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
+            ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput || String(v) === expectedOutput
           )))
 
     isSuccess = comparison.isSuccess || matchesExpected || orderCorrect

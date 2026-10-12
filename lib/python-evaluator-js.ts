@@ -159,14 +159,35 @@ export function createPyType(name: string) {
     if (name === 'int') {
       if (arg === undefined) return 0
       if (typeof arg === 'boolean') return arg ? 1 : 0
+      if (typeof arg === 'string') {
+        const trimmed = arg.trim()
+        if (!trimmed || isNaN(Number(trimmed))) {
+          throw new Error(`ValueError: invalid literal for int() with base 10: '${arg}'`)
+        }
+        return Math.trunc(Number(trimmed))
+      }
+      if (typeof arg === 'number') {
+        return Math.trunc(arg)
+      }
       return Math.trunc(Number(arg))
     }
     if (name === 'float') {
       if (arg === undefined) return 0.0
+      if (typeof arg === 'boolean') return arg ? 1.0 : 0.0
+      if (typeof arg === 'string') {
+        const trimmed = arg.trim()
+        if (!trimmed || isNaN(Number(trimmed))) {
+          throw new Error(`ValueError: could not convert string to float: '${arg}'`)
+        }
+        return Number(trimmed)
+      }
       return Number(arg)
     }
     if (name === 'bool') {
       if (arg === undefined) return false
+      if (typeof arg === 'string') {
+        return arg.length > 0
+      }
       return Boolean(arg)
     }
     if (name === 'list') {
@@ -379,7 +400,7 @@ export function findUndefinedVariables(code: string): Set<string> {
     }
 
     // Augmented assignment: var += ...
-    const augMatch = trimmed.match(/^([a-zA-Z_]\w*)\s*(?:\+=|-=|\*=|\/=|%=)=/)
+    const augMatch = trimmed.match(/^([a-zA-Z_]\w*)\s*(?:\+=|-=|\*=|\/=|(?:\/\/=)|%=|\*\*=)/)
     if (augMatch) {
       stored.add(augMatch[1].trim())
     }
@@ -416,27 +437,133 @@ export function findUndefinedVariables(code: string): Set<string> {
 }
 
 /**
- * Safely evaluates a basic Python expression in the context of the scope.
+ * Extracts prompts from all input(...) calls in Python source code in sequence.
  */
-function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
-  let jsExpr = cleanPythonComments(expr).trim()
+export function extractInputPrompts(code: string): string[] {
+  const clean = cleanPythonComments(code)
+  const prompts: string[] = []
+  const regex = /\binput\s*\(\s*(?:([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))|([^)]*))\s*\)/g
+  let m: RegExpExecArray | null
+  while ((m = regex.exec(clean)) !== null) {
+    if (m[1]) {
+      const raw = m[1].replace(/^[fFrRbBuU]?['"]{1,3}/, '').replace(/['"]{1,3}$/, '')
+      prompts.push(raw)
+    } else if (m[2] && m[2].trim()) {
+      prompts.push(m[2].trim())
+    } else {
+      prompts.push('')
+    }
+  }
+  return prompts
+}
 
-  // Convert Python f-strings: f"Hello, {name}!" -> `Hello, ${name}!`
-  if (jsExpr.startsWith('f"') || jsExpr.startsWith("f'")) {
-    const content = jsExpr.slice(2, -1)
-    const converted = content.replace(/\{([^}]+)\}/g, (_, inner) => `\${${inner}}`)
-    jsExpr = `\`${converted.replace(/`/g, '\\`')}\``
+/**
+ * Transforms a Python expression into equivalent JavaScript, handling:
+ * - f-strings: f"Hello, {name}!" -> `Hello, ${name}!`
+ * - String literal preservation (no keyword corruption inside strings)
+ * - Python floor division `//` (parenthesis-aware Math.floor((A) / (B)))
+ * - Python booleans, None, and logical operators (and -> &&, or -> ||, not -> !)
+ * - Comparison operators (is None -> === null, is not None -> !== null)
+ */
+export function transformPythonExprToJS(expr: string): string {
+  const clean = cleanPythonComments(expr).trim()
+  if (!clean) return ''
+
+  // 1. Extract string literals to protect them from keyword substitution
+  const stringLiterals: string[] = []
+  let s = clean.replace(
+    /([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))/g,
+    (match) => {
+      stringLiterals.push(match)
+      return `___PY_STR_${stringLiterals.length - 1}___`
+    }
+  )
+
+  // 2. Transform f-strings inside string literals
+  for (let i = 0; i < stringLiterals.length; i++) {
+    const raw = stringLiterals[i]
+    if (
+      raw.startsWith('f"') ||
+      raw.startsWith("f'") ||
+      raw.startsWith('F"') ||
+      raw.startsWith("F'")
+    ) {
+      const content = raw.slice(2, -1)
+      const converted = content.replace(/\{([^}]+)\}/g, (_, inner) => {
+        return '${' + transformPythonExprToJS(inner) + '}'
+      })
+      stringLiterals[i] = '`' + converted.replace(/`/g, '\\`') + '`'
+    }
   }
 
-  // Convert Python booleans, None, logical operators, and attributes
-  jsExpr = jsExpr
+  // 3. Parenthesis-aware floor division // -> Math.floor((A) / (B))
+  let fdivIdx = s.indexOf('//')
+  while (fdivIdx !== -1) {
+    let leftEnd = fdivIdx
+    while (leftEnd > 0 && /\s/.test(s[leftEnd - 1])) leftEnd--
+    let leftStart = leftEnd
+    if (leftEnd > 0 && s[leftEnd - 1] === ')') {
+      let depth = 1
+      leftStart = leftEnd - 1
+      while (leftStart > 0 && depth > 0) {
+        leftStart--
+        if (s[leftStart] === ')') depth++
+        else if (s[leftStart] === '(') depth--
+      }
+    } else {
+      while (leftStart > 0 && /[a-zA-Z0-9_.]/.test(s[leftStart - 1])) {
+        leftStart--
+      }
+    }
+
+    let rightStart = fdivIdx + 2
+    while (rightStart < s.length && /\s/.test(s[rightStart])) rightStart++
+    let rightEnd = rightStart
+    if (rightStart < s.length && s[rightStart] === '(') {
+      let depth = 1
+      rightEnd = rightStart + 1
+      while (rightEnd < s.length && depth > 0) {
+        if (s[rightEnd] === '(') depth++
+        else if (s[rightEnd] === ')') depth--
+        rightEnd++
+      }
+    } else {
+      while (rightEnd < s.length && /[a-zA-Z0-9_.]/.test(s[rightEnd])) {
+        rightEnd++
+      }
+    }
+
+    const left = s.slice(leftStart, leftEnd).trim()
+    const right = s.slice(rightStart, rightEnd).trim()
+    const replacement = `Math.floor((${left}) / (${right}))`
+    s = s.slice(0, leftStart) + replacement + s.slice(rightEnd)
+    fdivIdx = s.indexOf('//')
+  }
+
+  // 4. Transform Python booleans, None, and logical operators
+  s = s
     .replace(/\bTrue\b/g, 'true')
     .replace(/\bFalse\b/g, 'false')
     .replace(/\bNone\b/g, 'null')
     .replace(/\band\b/g, '&&')
     .replace(/\bor\b/g, '||')
-    .replace(/\bnot\b/g, '!')
+    .replace(/\bnot\b\s*/g, '!')
+    .replace(/\bis\s+not\s+null\b/g, '!== null')
+    .replace(/\bis\s+null\b/g, '=== null')
+    .replace(/\bis\s+not\s+None\b/g, '!== null')
+    .replace(/\bis\s+None\b/g, '=== null')
     .replace(/\.__name\b(?!_)/g, '.__name__')
+
+  // 5. Restore string literals
+  s = s.replace(/___PY_STR_(\d+)___/g, (_, idx) => stringLiterals[parseInt(idx, 10)])
+  return s
+}
+
+/**
+ * Safely evaluates a Python expression in the context of the scope.
+ */
+function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
+  const jsExpr = transformPythonExprToJS(expr)
 
   const scopeKeys = Object.keys(scope)
   const scopeVals = Object.values(scope)
@@ -477,16 +604,52 @@ type SingleRunResult = PythonExecutionResult & {
 }
 
 /**
- * Executes a single evaluation pass of a Python script with optional mock variable overrides.
+ * Executes a single evaluation pass of a Python script with optional mock variable overrides and input values.
  */
 function runSingleScript(
   sourceCode: string,
-  mockValues?: Record<string, unknown>
+  mockValues?: Record<string, unknown>,
+  inputs?: string[]
 ): SingleRunResult {
   const statements = splitIntoLogicalStatements(sourceCode)
-  const scope: Record<string, unknown> = { ...getBuiltinScope() }
-  const builtinKeys = new Set(Object.keys(scope))
   const output: string[] = []
+  const inputQueue = inputs ? [...inputs] : []
+  let inputCount = 0
+
+  const scope: Record<string, unknown> = {
+    ...getBuiltinScope(),
+    print: (...args: any[]) => {
+      const line = args.map((a) => formatPyValue(a)).join(' ')
+      output.push(line)
+      return undefined
+    },
+    input: (prompt?: unknown) => {
+      const promptStr = prompt !== undefined && prompt !== null ? String(prompt) : ''
+      if (promptStr) {
+        output.push(promptStr)
+      }
+      let val: string
+      if (inputQueue.length > 0) {
+        val = String(inputQueue.shift())
+      } else {
+        const defaults = ['10', '20', '5', '15', '100', 'True', 'Python']
+        val = defaults[inputCount % defaults.length]
+      }
+      inputCount++
+      return val
+    },
+    __py_mul__: (a: any, b: any) => {
+      if (typeof a === 'string' && typeof b === 'number') {
+        return a.repeat(Math.max(0, Math.trunc(b)))
+      }
+      if (typeof b === 'string' && typeof a === 'number') {
+        return b.repeat(Math.max(0, Math.trunc(a)))
+      }
+      return Number(a) * Number(b)
+    },
+    __py_floordiv__: (a: any, b: any) => Math.floor(Number(a) / Number(b)),
+  }
+  const builtinKeys = new Set(Object.keys(scope))
   let lastExprValue: unknown = undefined
 
   const undef = findUndefinedVariables(sourceCode)
@@ -522,6 +685,54 @@ function runSingleScript(
       try {
         const evaled = argsList.map((a) => formatPyValue(evaluateExpr(a, scope)))
         output.push(evaled.join(' '))
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return {
+          success: false,
+          stdout: output.join('\n'),
+          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
+          state: {},
+          exprResult: null,
+          exitCode: 1,
+          undef,
+        }
+      }
+      continue
+    }
+
+    // Handle augmented assignment: var += expr, var -= expr, etc.
+    const augMatch = rawText.match(/^([a-zA-Z_]\w*)\s*(\+=|-=|\*=|\/=|(?:\/\/=)|%=|\*\*=)\s*([\s\S]+)$/)
+    if (augMatch) {
+      const varName = augMatch[1].trim()
+      const op = augMatch[2].trim()
+      const expr = augMatch[3].trim()
+
+      try {
+        const val = evaluateExpr(expr, scope)
+        const cur = scope[varName]
+        if (op === '+=') {
+          if (typeof cur === 'string' || typeof val === 'string') {
+            scope[varName] = String(cur ?? '') + String(val ?? '')
+          } else {
+            scope[varName] = Number(cur ?? 0) + Number(val ?? 0)
+          }
+        } else if (op === '-=') {
+          scope[varName] = Number(cur ?? 0) - Number(val ?? 0)
+        } else if (op === '*=') {
+          if (typeof cur === 'string' && typeof val === 'number') {
+            scope[varName] = cur.repeat(Math.max(0, Math.trunc(val)))
+          } else {
+            scope[varName] = Number(cur ?? 0) * Number(val ?? 0)
+          }
+        } else if (op === '/=') {
+          scope[varName] = Number(cur ?? 0) / Number(val ?? 0)
+        } else if (op === '//=') {
+          scope[varName] = Math.floor(Number(cur ?? 0) / Number(val ?? 0))
+        } else if (op === '%=') {
+          scope[varName] = ((Number(cur ?? 0) % Number(val ?? 0)) + Number(val ?? 0)) % Number(val ?? 0)
+        } else if (op === '**=') {
+          scope[varName] = Math.pow(Number(cur ?? 0), Number(val ?? 0))
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         return {
@@ -605,11 +816,14 @@ function runSingleScript(
 /**
  * Lightweight JavaScript fallback evaluator for basic Python scripts.
  * Supports assignments, type annotations, arithmetic, strings, f-strings, comparisons,
- * dictionaries, lists, type inspection (`type(x).__name__`), and print statements.
+ * dictionaries, lists, type inspection (`type(x).__name__`), print statements, and input().
  * Safe for both server-side and browser/offline execution.
  */
-export function evaluatePythonJS(code: string): PythonExecutionResult {
-  const firstRun = runSingleScript(code)
+export function evaluatePythonJS(
+  code: string,
+  inputs?: string[]
+): PythonExecutionResult {
+  const firstRun = runSingleScript(code, undefined, inputs)
   if (!firstRun.success) {
     return firstRun
   }
@@ -627,7 +841,7 @@ export function evaluatePythonJS(code: string): PythonExecutionResult {
     for (const v of Array.from(firstRun.undef).sort()) {
       mock2[v] = primes2[idx++ % primes2.length]
     }
-    const secondRun = runSingleScript(code, mock2)
+    const secondRun = runSingleScript(code, mock2, inputs)
     testRuns.push({
       out: secondRun.stdout,
       state: secondRun.state ?? {},

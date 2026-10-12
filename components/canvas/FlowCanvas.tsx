@@ -40,7 +40,7 @@ import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
-import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput } from "@/lib/python-evaluator-js"
+import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput, extractInputPrompts } from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
 import { navigateSafely, isOnlineSync } from "@/lib/offline/connectivity"
 
@@ -707,6 +707,7 @@ function FlowCanvasInner({
   const [showTerminal, setShowTerminal] = useState(false)
   const [terminalLines, setTerminalLines] = useState<string[]>([])
   const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>("idle")
+  const [pendingPrompts, setPendingPrompts] = useState<string[]>([])
   const [showProblem, setShowProblem] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
 
@@ -1598,306 +1599,332 @@ function FlowCanvasInner({
     [setEdges, setNodes, removeEdge, isReadOnly]
   )
 
+  // ── executeValidation ────────────────────────────────────────────────────────
+  const executeValidation = useCallback(
+    async (collectedInputs: string[] = []) => {
+      setIsExecuting(true)
+      setAttempts((a) => a + 1)
+      setShowTerminal(true)
+      setTerminalStatus("running")
+      setTerminalLines(["Ejecutando..."])
+
+      const studentConnections = edges.map((e) => ({
+        sourceBlockId: e.source,
+        targetBlockId: e.target,
+        sourceHandle: e.sourceHandle ?? undefined,
+        targetHandle: e.targetHandle ?? undefined,
+      }))
+
+      const studentBlockOrder = getStudentBlockOrder(edges, nodes)
+      const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
+
+      // Helper for applying local offline Python validation
+      const runOfflineValidation = () => {
+        const codeBlocks = blocks.filter((b) => b.tipo !== "sticker")
+        const correctBlockIds = [...codeBlocks]
+          .sort((a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0))
+          .map((b) => b.id)
+        const correctCode = reconstructCodeFromBlocks(
+          blocks.map((b, idx) => ({
+            ...b,
+            orden_correcto: b.orden_correcto ?? idx,
+          }))
+        )
+
+        const normalizedReconstructed = (reconstructedCode || "").trim().replace(/\r\n/g, "\n")
+        const normalizedCorrect = (correctCode || "").trim().replace(/\r\n/g, "\n")
+
+        const codeMatches =
+          normalizedReconstructed.length > 0 &&
+          (normalizedReconstructed === normalizedCorrect ||
+            normalizedReconstructed.replace(/\s+/g, "") === normalizedCorrect.replace(/\s+/g, ""))
+
+        const orderMatches =
+          correctBlockIds.length > 0 &&
+          studentBlockOrder.length === correctBlockIds.length &&
+          studentBlockOrder.every((id, idx) => id === correctBlockIds[idx])
+
+        const studentConnSet = new Set(
+          studentConnections.map((c) => `${c.sourceBlockId}->${c.targetBlockId}`)
+        )
+        const connMatches =
+          connections.length > 0 &&
+          studentConnections.length === connections.length &&
+          connections.every((c) =>
+            studentConnSet.has(`${c.source_block_id}->${c.target_block_id}`)
+          )
+
+        const refResult = evaluatePythonJS(correctCode, collectedInputs)
+        const studentResult = evaluatePythonJS(reconstructedCode, collectedInputs)
+        const comp = compareExecutionResults(refResult, studentResult)
+
+        const expectedOutput = (resultadoEsperado || "").trim()
+        const stuStdout = (studentResult.stdout ?? "").trim()
+        const matchesExpected =
+          studentResult.success &&
+          expectedOutput.length > 0 &&
+          (stuStdout === expectedOutput ||
+            stuStdout.replace(/\s+/g, "") === expectedOutput.replace(/\s+/g, "") ||
+            normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
+            (studentResult.state &&
+              Object.entries(studentResult.state).some(
+                ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
+              )))
+
+        const isOfflineSuccess = comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
+
+        if (isOfflineSuccess) {
+          setTerminalStatus("success")
+          const outputLines = comp.displayOutput
+            ? comp.displayOutput.split("\n")
+            : resultadoEsperado
+              ? resultadoEsperado.split("\n")
+              : ["Código ejecutado exitosamente sin errores (Modo offline)."]
+          setTerminalLines(outputLines)
+
+          setEdges((eds) =>
+            eds.map((e) => ({
+              ...e,
+              data: { ...e.data, success: true, error: false, animating: false },
+              style: { stroke: "#22c55e", strokeWidth: 2 },
+            }))
+          )
+
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (n.type === "sticker" || n.type === "rectangleShape") {
+                return {
+                  ...n,
+                  draggable: true,
+                  data: { ...n.data, readOnly: false },
+                }
+              }
+              return {
+                ...n,
+                draggable: false,
+                data: { ...n.data, state: "success", readOnly: true },
+              }
+            })
+          )
+
+          setCompletedMap((prev) => {
+            const updated = { ...prev, [activityId]: true }
+            try {
+              localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
+            } catch (e) {
+              console.error("Error saving completed activities to localStorage", e)
+            }
+            return updated
+          })
+
+          confetti({
+            particleCount: 120,
+            spread: 80,
+            origin: { y: 0.6 },
+          })
+        } else {
+          setTerminalStatus("error")
+          const errorLines = comp.responseMessage
+            ? comp.responseMessage.split("\n")
+            : [
+                "Error: la secuencia de bloques no es correcta.",
+                "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
+              ]
+          setTerminalLines(errorLines)
+
+          // Flash edges red + spring-back animation
+          setEdges((eds) =>
+            eds.map((e) => ({
+              ...e,
+              data: { ...e.data, error: true, animating: true, success: false },
+              style: { stroke: "#ef4444", strokeWidth: 2 },
+            }))
+          )
+
+          setTimeout(() => {
+            setEdges([])
+            setNodes((nds) =>
+              nds.map((n) => ({
+                ...n,
+                data: { ...n.data, state: "idle", readOnly: false },
+              }))
+            )
+          }, 1000)
+        }
+      }
+
+      try {
+        const isDefinitelyOffline = !isOnlineSync()
+
+        if (isDefinitelyOffline) {
+          runOfflineValidation()
+          return
+        }
+
+        // Online validation attempt
+        let res: Response
+        try {
+          res = await fetch("/api/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              activityId,
+              studentConnections,
+              studentBlockOrder,
+              reconstructedCode,
+              inputs: collectedInputs,
+            }),
+          })
+        } catch (networkErr) {
+          // Fall back seamlessly to offline evaluator if network request fails
+          console.warn("Network error reaching /api/validate, falling back to offline evaluator:", networkErr)
+          runOfflineValidation()
+          return
+        }
+
+        if (!res.ok) {
+          // If status is 503 (offline SW response) or server error, fall back to offline evaluation
+          runOfflineValidation()
+          return
+        }
+
+        const json = await res.json()
+
+        if (json.offline) {
+          runOfflineValidation()
+          return
+        }
+
+        if (json.success) {
+          // ── SUCCESS ──────────────────────────────────────────────────────────
+          setTerminalStatus("success")
+          const outputLines = json.stdout
+            ? json.stdout.split("\n")
+            : ["Código ejecutado exitosamente sin errores."]
+          setTerminalLines(outputLines)
+
+          // Turn all edges green
+          setEdges((eds) =>
+            eds.map((e) => ({
+              ...e,
+              data: { ...e.data, success: true, error: false, animating: false },
+              style: { stroke: "#22c55e", strokeWidth: 2 },
+            }))
+          )
+
+          // Mark code and indent blocks as success + read-only, but keep stickers and rectangles editable
+          setNodes((nds) =>
+            nds.map((n) => {
+              if (n.type === "sticker" || n.type === "rectangleShape") {
+                return {
+                  ...n,
+                  draggable: true,
+                  data: { ...n.data, readOnly: false },
+                }
+              }
+              return {
+                ...n,
+                draggable: false,
+                data: { ...n.data, state: "success", readOnly: true },
+              }
+            })
+          )
+
+          // Mark as completed in local state & localStorage
+          setCompletedMap((prev) => {
+            const updated = { ...prev, [activityId]: true }
+            try {
+              localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
+            } catch (e) {
+              console.error("Error saving completed activities to localStorage", e)
+            }
+            return updated
+          })
+
+          // Celebrate 🎉
+          confetti({
+            particleCount: 120,
+            spread: 80,
+            origin: { y: 0.6 },
+          })
+        } else {
+          // ── ERROR ─────────────────────────────────────────────────────────────
+          setTerminalStatus("error")
+          const errorLines = json.message
+            ? json.message.split("\n")
+            : [
+                "Error: la secuencia no es correcta",
+                "Revisa las conexiones e intenta de nuevo",
+              ]
+          setTerminalLines(errorLines)
+
+          // Flash edges red + spring-back animation
+          setEdges((eds) =>
+            eds.map((e) => ({
+              ...e,
+              data: { ...e.data, error: true, animating: true, success: false },
+              style: { stroke: "#ef4444", strokeWidth: 2 },
+            }))
+          )
+
+          // After 1 s: delete all edges and reset node states
+          setTimeout(() => {
+            setEdges([])
+            setNodes((nds) =>
+              nds.map((n) => ({
+                ...n,
+                data: { ...n.data, state: "idle", readOnly: false },
+              }))
+            )
+          }, 1000)
+        }
+      } catch (err) {
+        setTerminalStatus("error")
+        setTerminalLines([
+          "Error de ejecución",
+          "Por favor intenta de nuevo",
+        ])
+      } finally {
+        setIsExecuting(false)
+        setPendingPrompts([])
+      }
+    },
+    [
+      activityId,
+      blocks,
+      connections,
+      edges,
+      nodes,
+      resultadoEsperado,
+      setEdges,
+      setNodes,
+    ]
+  )
+
+  const handleCompleteInputs = useCallback(
+    (collectedInputs: string[]) => {
+      executeValidation(collectedInputs)
+    },
+    [executeValidation]
+  )
+
   // ── onExecute ───────────────────────────────────────────────────────────────
-  const onExecute = useCallback(async () => {
+  const onExecute = useCallback(() => {
     if (!canExecute || isExecuting) return
 
-    setIsExecuting(true)
-    setAttempts((a) => a + 1)
-    setShowTerminal(true)
-    setTerminalStatus("running")
-    setTerminalLines(["Ejecutando..."])
-
-    const studentConnections = edges.map((e) => ({
-      sourceBlockId: e.source,
-      targetBlockId: e.target,
-      sourceHandle: e.sourceHandle ?? undefined,
-      targetHandle: e.targetHandle ?? undefined,
-    }))
-
-    const studentBlockOrder = getStudentBlockOrder(edges, nodes)
     const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
+    const prompts = extractInputPrompts(reconstructedCode)
 
-    // Helper for applying local offline Python validation
-    const runOfflineValidation = () => {
-      const codeBlocks = blocks.filter((b) => b.tipo !== 'sticker')
-      const correctBlockIds = [...codeBlocks]
-        .sort((a, b) => (a.orden_correcto ?? 0) - (b.orden_correcto ?? 0))
-        .map((b) => b.id)
-      const correctCode = reconstructCodeFromBlocks(
-        blocks.map((b, idx) => ({
-          ...b,
-          orden_correcto: b.orden_correcto ?? idx,
-        }))
-      )
-
-      const normalizedReconstructed = (reconstructedCode || '').trim().replace(/\r\n/g, '\n')
-      const normalizedCorrect = (correctCode || '').trim().replace(/\r\n/g, '\n')
-
-      const codeMatches =
-        normalizedReconstructed.length > 0 &&
-        (normalizedReconstructed === normalizedCorrect ||
-          normalizedReconstructed.replace(/\s+/g, '') === normalizedCorrect.replace(/\s+/g, ''))
-
-      const orderMatches =
-        correctBlockIds.length > 0 &&
-        studentBlockOrder.length === correctBlockIds.length &&
-        studentBlockOrder.every((id, idx) => id === correctBlockIds[idx])
-
-      const studentConnSet = new Set(
-        studentConnections.map((c) => `${c.sourceBlockId}->${c.targetBlockId}`)
-      )
-      const connMatches =
-        connections.length > 0 &&
-        studentConnections.length === connections.length &&
-        connections.every((c) =>
-          studentConnSet.has(`${c.source_block_id}->${c.target_block_id}`)
-        )
-
-      const refResult = evaluatePythonJS(correctCode)
-      const studentResult = evaluatePythonJS(reconstructedCode)
-      const comp = compareExecutionResults(refResult, studentResult)
-
-      const expectedOutput = (resultadoEsperado || "").trim()
-      const stuStdout = (studentResult.stdout ?? "").trim()
-      const matchesExpected =
-        studentResult.success &&
-        expectedOutput.length > 0 &&
-        (stuStdout === expectedOutput ||
-          stuStdout.replace(/\s+/g, "") === expectedOutput.replace(/\s+/g, "") ||
-          normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
-          (studentResult.state &&
-            Object.entries(studentResult.state).some(
-              ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
-            )))
-
-      const isOfflineSuccess = comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
-
-      if (isOfflineSuccess) {
-        setTerminalStatus("success")
-        const outputLines = comp.displayOutput
-          ? comp.displayOutput.split("\n")
-          : resultadoEsperado
-            ? resultadoEsperado.split("\n")
-            : ["Código ejecutado exitosamente sin errores (Modo offline)."]
-        setTerminalLines(outputLines)
-
-        setEdges((eds) =>
-          eds.map((e) => ({
-            ...e,
-            data: { ...e.data, success: true, error: false, animating: false },
-            style: { stroke: "#22c55e", strokeWidth: 2 },
-          }))
-        )
-
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.type === "sticker" || n.type === "rectangleShape") {
-              return {
-                ...n,
-                draggable: true,
-                data: { ...n.data, readOnly: false },
-              }
-            }
-            return {
-              ...n,
-              draggable: false,
-              data: { ...n.data, state: "success", readOnly: true },
-            }
-          })
-        )
-
-        setCompletedMap((prev) => {
-          const updated = { ...prev, [activityId]: true }
-          try {
-            localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
-          } catch (e) {
-            console.error("Error saving completed activities to localStorage", e)
-          }
-          return updated
-        })
-
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-        })
-      } else {
-        setTerminalStatus("error")
-        const errorLines = comp.responseMessage
-          ? comp.responseMessage.split("\n")
-          : [
-              "Error: la secuencia de bloques no es correcta.",
-              "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
-            ]
-        setTerminalLines(errorLines)
-
-        // Flash edges red + spring-back animation
-        setEdges((eds) =>
-          eds.map((e) => ({
-            ...e,
-            data: { ...e.data, error: true, animating: true, success: false },
-            style: { stroke: "#ef4444", strokeWidth: 2 },
-          }))
-        )
-
-        setTimeout(() => {
-          setEdges([])
-          setNodes((nds) =>
-            nds.map((n) => ({
-              ...n,
-              data: { ...n.data, state: "idle", readOnly: false },
-            }))
-          )
-        }, 1000)
-      }
+    if (prompts.length > 0) {
+      setPendingPrompts(prompts)
+      setShowTerminal(true)
+      setTerminalStatus("idle")
+      setTerminalLines([])
+      return
     }
 
-    try {
-      const isDefinitelyOffline = !isOnlineSync()
-
-      if (isDefinitelyOffline) {
-        runOfflineValidation()
-        return
-      }
-
-      // Online validation attempt
-      let res: Response
-      try {
-        res = await fetch("/api/validate", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            activityId,
-            studentConnections,
-            studentBlockOrder,
-            reconstructedCode,
-          }),
-        })
-      } catch (networkErr) {
-        // Fall back seamlessly to offline evaluation if network request fails
-        console.warn("Network error reaching /api/validate, falling back to offline evaluator:", networkErr)
-        runOfflineValidation()
-        return
-      }
-
-      if (!res.ok) {
-        // If status is 503 (offline SW response) or server error, fall back to offline evaluation
-        runOfflineValidation()
-        return
-      }
-
-      const json = await res.json()
-
-      if (json.offline) {
-        runOfflineValidation()
-        return
-      }
-
-      if (json.success) {
-        // ── SUCCESS ──────────────────────────────────────────────────────────
-        setTerminalStatus("success")
-        const outputLines = json.stdout
-          ? json.stdout.split("\n")
-          : ["Código ejecutado exitosamente sin errores."]
-        setTerminalLines(outputLines)
-
-        // Turn all edges green
-        setEdges((eds) =>
-          eds.map((e) => ({
-            ...e,
-            data: { ...e.data, success: true, error: false, animating: false },
-            style: { stroke: "#22c55e", strokeWidth: 2 },
-          }))
-        )
-
-        // Mark code and indent blocks as success + read-only, but keep stickers and rectangles editable
-        setNodes((nds) =>
-          nds.map((n) => {
-            if (n.type === "sticker" || n.type === "rectangleShape") {
-              return {
-                ...n,
-                draggable: true,
-                data: { ...n.data, readOnly: false },
-              }
-            }
-            return {
-              ...n,
-              draggable: false,
-              data: { ...n.data, state: "success", readOnly: true },
-            }
-          })
-        )
-
-        // Mark as completed in local state & localStorage
-        setCompletedMap((prev) => {
-          const updated = { ...prev, [activityId]: true }
-          try {
-            localStorage.setItem("knoten_completed_activities", JSON.stringify(updated))
-          } catch (e) {
-            console.error("Error saving completed activities to localStorage", e)
-          }
-          return updated
-        })
-
-        // Celebrate 🎉
-        confetti({
-          particleCount: 120,
-          spread: 80,
-          origin: { y: 0.6 },
-        })
-      } else {
-        // ── ERROR ─────────────────────────────────────────────────────────────
-        setTerminalStatus("error")
-        const errorLines = json.message
-          ? json.message.split("\n")
-          : [
-              "Error: la secuencia no es correcta",
-              "Revisa las conexiones e intenta de nuevo",
-            ]
-        setTerminalLines(errorLines)
-
-        // Flash edges red + spring-back animation
-        setEdges((eds) =>
-          eds.map((e) => ({
-            ...e,
-            data: { ...e.data, error: true, animating: true, success: false },
-            style: { stroke: "#ef4444", strokeWidth: 2 },
-          }))
-        )
-
-        // After 1 s: delete all edges and reset node states
-        setTimeout(() => {
-          setEdges([])
-          setNodes((nds) =>
-            nds.map((n) => ({
-              ...n,
-              data: { ...n.data, state: "idle", readOnly: false },
-            }))
-          )
-        }, 1000)
-      }
-    } catch (err) {
-      setTerminalStatus("error")
-      setTerminalLines([
-        "Error de ejecución",
-        "Por favor intenta de nuevo",
-      ])
-    } finally {
-      setIsExecuting(false)
-    }
-  }, [
-    activityId,
-    blocks,
-    canExecute,
-    connections,
-    edges,
-    isExecuting,
-    nodes,
-    resultadoEsperado,
-    setEdges,
-    setNodes,
-  ])
+    executeValidation([])
+  }, [canExecute, isExecuting, nodes, edges, executeValidation])
 
   return (
     <div className="w-full h-screen relative">
@@ -2136,9 +2163,15 @@ function FlowCanvasInner({
 
       <TerminalModal
         isOpen={showTerminal}
-        onClose={() => setShowTerminal(false)}
+        onClose={() => {
+          setShowTerminal(false)
+          setPendingPrompts([])
+          setIsExecuting(false)
+        }}
         lines={terminalLines}
         status={terminalStatus}
+        pendingPrompts={pendingPrompts}
+        onCompleteInputs={handleCompleteInputs}
       />
 
       <ProblemModal

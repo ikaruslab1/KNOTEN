@@ -7,6 +7,7 @@ import {
   canonicalStringify,
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,
+  extractInputPrompts,
 } from './python-evaluator-js'
 
 export type { PythonExecutionResult }
@@ -17,14 +18,22 @@ export {
   canonicalStringify,
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,
+  extractInputPrompts,
 }
 
 const PYTHON_HARNESS = `
-import io, contextlib, sys, json, traceback, ast
+import io, contextlib, sys, json, traceback, ast, builtins
 
-code = sys.stdin.read()
+raw_input_data = sys.stdin.read()
+try:
+    payload = json.loads(raw_input_data)
+    code = payload.get("code", "")
+    provided_inputs = payload.get("inputs", [])
+except Exception:
+    code = raw_input_data
+    provided_inputs = []
 
-def run_script(source_code, var_defaults=None):
+def run_script(source_code, var_defaults=None, script_inputs=None):
     tree = ast.parse(source_code)
     
     # Identify free/unbound variables
@@ -47,18 +56,41 @@ def run_script(source_code, var_defaults=None):
         for idx, v in enumerate(sorted(undefined)):
             env[v] = primes[idx % len(primes)]
 
+    if script_inputs is not None:
+        input_queue = list(script_inputs)
+    else:
+        input_queue = list(provided_inputs)
+
+    def mock_input(prompt=''):
+        if prompt is not None and str(prompt) != '':
+            sys.stdout.write(str(prompt))
+        if input_queue:
+            return str(input_queue.pop(0))
+        defaults = ["10", "20", "5", "15", "100", "True", "Python"]
+        val = defaults[mock_input.counter % len(defaults)]
+        mock_input.counter += 1
+        return val
+
+    mock_input.counter = 0
+
     stdout_buf = io.StringIO()
     expr_result = None
-    with contextlib.redirect_stdout(stdout_buf):
-        if tree.body and isinstance(tree.body[-1], ast.Expr):
-            last_expr = tree.body.pop()
-            if tree.body:
+    orig_input = builtins.input
+    builtins.input = mock_input
+
+    try:
+        with contextlib.redirect_stdout(stdout_buf):
+            if tree.body and isinstance(tree.body[-1], ast.Expr):
+                last_expr = tree.body.pop()
+                if tree.body:
+                    exec(compile(tree, '<string>', 'exec'), env)
+                expr_result = eval(compile(ast.Expression(last_expr.value), '<string>', 'eval'), env)
+                if expr_result is not None and stdout_buf.getvalue().strip() == '':
+                    sys.stdout.write(repr(expr_result) + '\\n')
+            else:
                 exec(compile(tree, '<string>', 'exec'), env)
-            expr_result = eval(compile(ast.Expression(last_expr.value), '<string>', 'eval'), env)
-            if expr_result is not None and stdout_buf.getvalue().strip() == '':
-                sys.stdout.write(repr(expr_result) + '\\n')
-        else:
-            exec(compile(tree, '<string>', 'exec'), env)
+    finally:
+        builtins.input = orig_input
 
     state = {}
     for k, v in env.items():
@@ -118,26 +150,32 @@ except Exception as e:
  * If Python is not installed or available on the host system,
  * it falls back to the internal JavaScript sandbox evaluator.
  */
-export async function executePythonCode(code: string): Promise<PythonExecutionResult> {
-  const binaryResult = await tryExecutePythonBinary(code)
+export async function executePythonCode(
+  code: string,
+  inputs?: string[]
+): Promise<PythonExecutionResult> {
+  const binaryResult = await tryExecutePythonBinary(code, inputs)
   if (binaryResult !== null) {
     return binaryResult
   }
 
   // Fallback: evaluate via JS sandbox
-  return evaluatePythonJS(code)
+  return evaluatePythonJS(code, inputs)
 }
 
 /**
  * Attempts execution with Python binary candidates ('python', 'py', 'python3').
- * Sends code via stdin to avoid Windows CLI escaping and length restrictions.
+ * Sends code and inputs via stdin as JSON to avoid Windows CLI escaping and length restrictions.
  * Returns null if no python binary is available on the system.
  */
-async function tryExecutePythonBinary(code: string): Promise<PythonExecutionResult | null> {
+async function tryExecutePythonBinary(
+  code: string,
+  inputs?: string[]
+): Promise<PythonExecutionResult | null> {
   const binaries = ['python', 'py', 'python3']
 
   for (const bin of binaries) {
-    const res = await runPythonBinary(bin, code)
+    const res = await runPythonBinary(bin, code, inputs)
     if (res !== 'ENOENT') {
       return res
     }
@@ -149,6 +187,7 @@ async function tryExecutePythonBinary(code: string): Promise<PythonExecutionResu
 function runPythonBinary(
   bin: string,
   code: string,
+  inputs?: string[]
 ): Promise<PythonExecutionResult | 'ENOENT'> {
   return new Promise((resolve) => {
     try {
@@ -224,7 +263,8 @@ function runPythonBinary(
         })
       })
 
-      child.stdin.write(code)
+      const payload = JSON.stringify({ code, inputs: inputs || [] })
+      child.stdin.write(payload)
       child.stdin.end()
     } catch {
       resolve('ENOENT')

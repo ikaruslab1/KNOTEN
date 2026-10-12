@@ -9,6 +9,8 @@ type TerminalModalProps = {
   onClose: () => void
   lines: string[]
   status: 'running' | 'success' | 'error' | 'idle'
+  pendingPrompts?: string[]
+  onCompleteInputs?: (inputs: string[]) => void
 }
 
 const LINE_DELAY_MS = 150
@@ -18,17 +20,51 @@ export default function TerminalModal({
   onClose,
   lines,
   status,
+  pendingPrompts = [],
+  onCompleteInputs,
 }: TerminalModalProps) {
   const [displayedLines, setDisplayedLines] = useState<string[]>([])
   const [done, setDone] = useState(false)
-  const bodyRef = useRef<HTMLDivElement>(null)
+  const [currentPromptIdx, setCurrentPromptIdx] = useState(0)
+  const [currentInputVal, setCurrentInputVal] = useState('')
+  const [promptHistory, setPromptHistory] = useState<Array<{ prompt: string; value: string }>>([])
+  const [isCollectingInputs, setIsCollectingInputs] = useState(false)
 
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Initialize modal state when opened
   useEffect(() => {
     if (!isOpen) {
       setDisplayedLines([])
       setDone(false)
+      setCurrentPromptIdx(0)
+      setCurrentInputVal('')
+      setPromptHistory([])
+      setIsCollectingInputs(false)
       return
     }
+
+    if (pendingPrompts && pendingPrompts.length > 0 && onCompleteInputs) {
+      setIsCollectingInputs(true)
+      setCurrentPromptIdx(0)
+      setCurrentInputVal('')
+      setPromptHistory([])
+      setDisplayedLines([])
+      setDone(false)
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 50)
+    } else {
+      setIsCollectingInputs(false)
+      setDisplayedLines([])
+      setDone(false)
+    }
+  }, [isOpen, pendingPrompts, onCompleteInputs])
+
+  // Process output lines after input collection is done or when executing directly
+  useEffect(() => {
+    if (!isOpen || isCollectingInputs) return
 
     setDisplayedLines([])
     setDone(false)
@@ -46,8 +82,9 @@ export default function TerminalModal({
     })
 
     return () => timeouts.forEach(clearTimeout)
-  }, [isOpen, lines])
+  }, [isOpen, lines, isCollectingInputs])
 
+  // Fire confetti on success
   useEffect(() => {
     if (done && status === 'success') {
       confetti({
@@ -58,13 +95,36 @@ export default function TerminalModal({
     }
   }, [done, status])
 
+  // Auto-scroll terminal body
   useEffect(() => {
     if (bodyRef.current) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight
     }
-  }, [displayedLines])
+  }, [displayedLines, promptHistory, isCollectingInputs, currentPromptIdx])
 
   if (!isOpen) return null
+
+  const handlePromptSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    const promptText = pendingPrompts[currentPromptIdx] || ''
+    const val = currentInputVal
+
+    const nextHistory = [...promptHistory, { prompt: promptText, value: val }]
+    setPromptHistory(nextHistory)
+    setCurrentInputVal('')
+
+    if (currentPromptIdx + 1 < pendingPrompts.length) {
+      setCurrentPromptIdx((idx) => idx + 1)
+      setTimeout(() => {
+        inputRef.current?.focus()
+      }, 20)
+    } else {
+      // All inputs collected!
+      setIsCollectingInputs(false)
+      const allValues = nextHistory.map((h) => h.value)
+      onCompleteInputs?.(allValues)
+    }
+  }
 
   const lineColorClass = () => {
     if (status === 'success') return 'text-green-400'
@@ -102,20 +162,66 @@ export default function TerminalModal({
         {/* Terminal body */}
         <div
           ref={bodyRef}
-          className="min-h-36 sm:min-h-48 max-h-[60vh] sm:max-h-96 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-0.5"
+          onClick={() => {
+            if (isCollectingInputs) inputRef.current?.focus()
+          }}
+          className="min-h-36 sm:min-h-48 max-h-[60vh] sm:max-h-96 overflow-y-auto p-3 sm:p-4 font-mono text-xs sm:text-sm space-y-1.5 cursor-text"
         >
-          {displayedLines.map((line, i) => (
-            <div key={i} className={cn('leading-5', lineColorClass())}>
+          {/* History of answered input prompts */}
+          {promptHistory.map((h, i) => (
+            <div key={`hist-${i}`} className="leading-5 text-gray-300 flex items-baseline flex-wrap">
               <span className="text-gray-500 select-none mr-2">$</span>
-              {line}
+              {h.prompt && <span className="text-amber-300 mr-2">{h.prompt}</span>}
+              <span className="text-green-300 font-semibold">{h.value}</span>
             </div>
           ))}
 
-          {status === 'running' && !done && (
+          {/* Active interactive input prompt */}
+          {isCollectingInputs && currentPromptIdx < pendingPrompts.length && (
+            <form
+              onSubmit={handlePromptSubmit}
+              className="flex items-center gap-1.5 leading-5 text-gray-100 bg-gray-800/40 px-2 py-1.5 rounded border border-gray-700/60"
+            >
+              <span className="text-amber-400 select-none mr-1 font-bold shrink-0">$</span>
+              {pendingPrompts[currentPromptIdx] ? (
+                <span className="text-amber-300 font-medium shrink-0">
+                  {pendingPrompts[currentPromptIdx]}
+                </span>
+              ) : (
+                <span className="text-zinc-400 text-xs shrink-0">&gt;</span>
+              )}
+              <input
+                ref={inputRef}
+                type="text"
+                value={currentInputVal}
+                onChange={(e) => setCurrentInputVal(e.target.value)}
+                className="flex-1 bg-transparent border-none outline-none text-green-400 font-mono text-xs sm:text-sm p-0 m-0 focus:ring-0 placeholder:text-gray-600"
+                autoFocus
+                placeholder="Escribe el valor y presiona Enter..."
+              />
+              <button
+                type="submit"
+                className="px-2 py-0.5 rounded bg-zinc-700 hover:bg-zinc-600 text-zinc-300 text-[11px] font-mono transition shrink-0 cursor-pointer shadow-xs"
+              >
+                ↵ Intro
+              </button>
+            </form>
+          )}
+
+          {/* Normal execution output lines */}
+          {!isCollectingInputs &&
+            displayedLines.map((line, i) => (
+              <div key={`out-${i}`} className={cn('leading-5', lineColorClass())}>
+                <span className="text-gray-500 select-none mr-2">$</span>
+                {line}
+              </div>
+            ))}
+
+          {status === 'running' && !done && !isCollectingInputs && (
             <span className="inline-block text-gray-300 animate-pulse">|</span>
           )}
 
-          {done && status === 'success' && (
+          {done && status === 'success' && !isCollectingInputs && (
             <div className="mt-2 text-green-400 font-bold text-base">
               ✓ Correcto
             </div>
