@@ -23,6 +23,8 @@ import {
 import { createClient } from '@/lib/supabase/client'
 import { splitPythonCode, getDefaultPositions, tokenizeLine, type SplitBlock } from '@/lib/code-splitter'
 import { PythonCodeHighlight } from '@/lib/python-syntax'
+import BlockInfoModal from '@/components/canvas/BlockInfoModal'
+import { inspectPythonBlock, PythonBlockDoc } from '@/lib/python-documentation'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -286,6 +288,29 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
   const [activeInsertIndex, setActiveInsertIndex] = useState<number | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
+
+  // ── Block Inspection (Right-Click type & documentation) ─────────────────────
+  const [inspectModal, setInspectModal] = useState<{
+    doc: PythonBlockDoc
+    position: { x: number; y: number }
+  } | null>(null)
+
+  const handleBlockContextMenu = useCallback(
+    (e: React.MouseEvent, targetBlock: SplitBlock) => {
+      e.preventDefault()
+      e.stopPropagation()
+      const doc = inspectPythonBlock({
+        tipo: targetBlock.tipo,
+        code: targetBlock.contenido,
+        contenido: targetBlock.contenido,
+      })
+      setInspectModal({
+        doc,
+        position: { x: e.clientX, y: e.clientY },
+      })
+    },
+    []
+  )
 
   const handleReorder = useCallback((fromIndex: number, toIndex: number) => {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) return
@@ -736,6 +761,7 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
                   onMove={moveBlock}
                   onEdit={handleEditBlock}
                   onDelete={handleDeleteBlock}
+                  onContextMenu={handleBlockContextMenu}
                   onDragStart={(idx) => setDraggedIndex(idx)}
                   onDragOver={(idx) => setDragOverIndex(idx)}
                   onDragEnd={() => {
@@ -939,6 +965,14 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
           )}
         </div>
       )}
+
+      {/* ── Block Inspection Modal ─────────────────────────────────────────── */}
+      <BlockInfoModal
+        isOpen={Boolean(inspectModal)}
+        onClose={() => setInspectModal(null)}
+        doc={inspectModal?.doc ?? null}
+        position={inspectModal?.position}
+      />
     </div>
   )
 }
@@ -1125,6 +1159,7 @@ type BlockCardProps = {
     newIndentLevel?: number
   ) => void
   onDelete: (index: number) => void
+  onContextMenu?: (e: React.MouseEvent, block: SplitBlock) => void
   onDragStart?: (index: number) => void
   onDragOver?: (index: number, e: React.DragEvent) => void
   onDragEnd?: () => void
@@ -1140,6 +1175,7 @@ function BlockCard({
   onMove,
   onEdit,
   onDelete,
+  onContextMenu,
   onDragStart,
   onDragOver,
   onDragEnd,
@@ -1202,6 +1238,12 @@ function BlockCard({
       onDrop={(e) => {
         e.preventDefault()
         onDrop?.(index)
+      }}
+      onContextMenu={(e) => {
+        if (!isEditing && onContextMenu) {
+          e.preventDefault()
+          onContextMenu(e, block)
+        }
       }}
       className={cn(
         'group flex items-start gap-3 rounded-xl border p-3 shadow-xs transition-all duration-150 select-none',

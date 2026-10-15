@@ -49,6 +49,9 @@ const StickerNode = memo(({ id, data, selected }: NodeProps<StickerNodeData>) =>
     <div
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+      }}
       className={cn(
         'relative flex items-center justify-center cursor-move select-none group',
         (data as any)?.isExiting ? 'animate-cartoon-out' : 'animate-cartoon-in'

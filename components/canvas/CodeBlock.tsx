@@ -75,6 +75,9 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
   return (
     <div
       onAnimationEnd={handleAnimationEnd}
+      onContextMenu={(e) => {
+        e.preventDefault()
+      }}
       style={{
         animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}

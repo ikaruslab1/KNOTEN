@@ -102,6 +102,9 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
       onAnimationEnd={handleAnimationEnd}
+      onContextMenu={(e) => {
+        e.preventDefault()
+      }}
       style={{
         height: totalHeight,
         animationDelay: isBumping ? '0s' : `${entranceDelay}s`,

@@ -39,6 +39,8 @@ import ElasticConnectionLine from "./ElasticConnectionLine"
 import ParticleBurst, { ParticleBurstEvent } from "./ParticleBurst"
 import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
+import BlockInfoModal from "./BlockInfoModal"
+import { inspectPythonBlock, PythonBlockDoc } from "@/lib/python-documentation"
 import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
 import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput, extractInputPrompts } from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
@@ -710,6 +712,53 @@ function FlowCanvasInner({
   const [pendingPrompts, setPendingPrompts] = useState<string[]>([])
   const [showProblem, setShowProblem] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
+
+  // ── Block Inspection (Right-Click type & documentation) ─────────────────────
+  const [inspectModal, setInspectModal] = useState<{
+    doc: PythonBlockDoc
+    position: { x: number; y: number }
+  } | null>(null)
+
+  const handleNodeContextMenu = useCallback(
+    (event: React.MouseEvent, node: Node) => {
+      event.preventDefault()
+      event.stopPropagation()
+
+      // LineRail node does not need inspection
+      if (node.type === "lineRail") return
+
+      // Attempt to inspect current runtime variable state from canvas
+      let currentScope: Record<string, string> = {}
+      try {
+        const { code } = reconstructCodeFromCanvas(nodes, edges)
+        if (code.trim()) {
+          const evalRes = evaluatePythonJS(code)
+          if (evalRes.state) {
+            currentScope = evalRes.state
+          }
+        }
+      } catch {
+        // ignore evaluation syntax errors while student is connecting blocks
+      }
+
+      const doc = inspectPythonBlock(
+        {
+          id: node.id,
+          tipo: node.type,
+          code: node.data?.code,
+          contenido: node.data?.code || node.data?.text || node.data?.emoji,
+          data: node.data,
+        },
+        { currentScope }
+      )
+
+      setInspectModal({
+        doc,
+        position: { x: event.clientX, y: event.clientY },
+      })
+    },
+    [nodes, edges]
+  )
 
   // ── Physics & Particles state ───────────────────────────────────────────────
   const [bursts, setBursts] = useState<ParticleBurstEvent[]>([])
@@ -2138,6 +2187,9 @@ function FlowCanvasInner({
         onEdgeUpdateStart={onEdgeUpdateStart}
         onEdgeUpdateEnd={onEdgeUpdateEnd}
         onEdgeDoubleClick={onEdgeDoubleClick}
+        onNodeContextMenu={handleNodeContextMenu}
+        onPaneClick={() => setInspectModal(null)}
+        onMoveStart={() => setInspectModal(null)}
         edgesUpdatable={!isReadOnly}
         edgesFocusable={true}
         nodeTypes={nodeTypes}
@@ -2179,6 +2231,13 @@ function FlowCanvasInner({
         onClose={() => setShowProblem(false)}
         enunciado={enunciado}
         resultadoEsperado={resultadoEsperado}
+      />
+
+      <BlockInfoModal
+        isOpen={Boolean(inspectModal)}
+        onClose={() => setInspectModal(null)}
+        doc={inspectModal?.doc ?? null}
+        position={inspectModal?.position}
       />
     </div>
   )
