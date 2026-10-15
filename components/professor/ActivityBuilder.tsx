@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { splitPythonCode, getDefaultPositions, tokenizeLine, type SplitBlock } from '@/lib/code-splitter'
+import { PythonCodeHighlight } from '@/lib/python-syntax'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -669,7 +670,7 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
                           title="Haz clic para agregar este elemento como nuevo bloque"
                           className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white border border-amber-300 text-amber-950 font-mono text-xs font-semibold hover:bg-amber-100 hover:border-amber-400 transition cursor-pointer shadow-xs group"
                         >
-                          <span>{token}</span>
+                          <PythonCodeHighlight code={token} />
                           <Plus className="w-3 h-3 text-amber-500 group-hover:text-amber-800" />
                         </button>
                       ))}
@@ -1335,11 +1336,11 @@ function BlockCard({
           <div className="flex items-center justify-between">
             <pre
               onClick={() => setIsEditing(true)}
-              className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-900 leading-relaxed font-medium bg-zinc-50/60 hover:bg-zinc-100/80 rounded px-2 py-1 max-w-full cursor-pointer transition"
+              className="overflow-x-auto whitespace-pre font-mono text-xs leading-relaxed font-medium bg-zinc-50/60 hover:bg-zinc-100/80 rounded px-2 py-1 max-w-full cursor-pointer transition"
               title="Haz clic para editar"
             >
               {block.contenido ? (
-                block.contenido
+                <PythonCodeHighlight code={block.contenido} />
               ) : !isCodigo ? (
                 <span className="font-mono text-xs text-zinc-600 font-semibold flex items-center gap-1.5">
                   <span className="text-zinc-400">⇥</span> Indentación (nivel {block.indent_level || 1})

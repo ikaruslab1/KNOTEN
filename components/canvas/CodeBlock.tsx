@@ -2,6 +2,7 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { cn } from '@/lib/utils'
+import { PythonCodeHighlight } from '@/lib/python-syntax'
 
 export type CodeBlockData = {
   code: string
@@ -113,9 +114,12 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
       />
 
       {/* Content - ample horizontal padding (px-5) to never overlap arista handles */}
-      <div className="px-5 py-2.5 sm:px-4 sm:py-2 flex items-center justify-center">
-        <pre className="text-sm font-mono text-zinc-900 whitespace-pre">
-          <code>{code}</code>
+      <div className="px-5 py-2.5 sm:px-4 sm:py-2 flex items-center justify-center min-h-[38px]">
+        <pre className="text-sm font-mono whitespace-pre leading-relaxed select-none">
+          <code>
+            <PythonCodeHighlight code={code} />
+            {!code && <span className="opacity-0 select-none">&nbsp;</span>}
+          </code>
         </pre>
       </div>
 
