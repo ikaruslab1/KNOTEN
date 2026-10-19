@@ -324,10 +324,18 @@ function blocksToNodes(blocks: Block[]): Node[] {
     }
 
     if (block.tipo === "indentacion") {
+      const level = block.indent_level && block.indent_level > 0 ? block.indent_level : 1
       return {
         ...base,
         type: "indentBlock",
-        data: { rows: 1, state: "idle" as NodeState, entranceDelay, isExiting: false },
+        data: {
+          rows: 1,
+          level,
+          state: "idle" as NodeState,
+          entranceDelay,
+          isExiting: false,
+          mergedBlockIds: [block.id],
+        },
       }
     }
 
@@ -418,7 +426,8 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   }
   if (node.type === "indentBlock") {
     const rows = node.data?.rows ?? 1
-    return { width: 112, height: rows * 64 }
+    const level = node.data?.level ?? 1
+    return { width: level > 1 ? 152 : 112, height: rows * 64 }
   }
   if (node.type === "sticker") {
     const scale = node.data?.scale ?? 1
@@ -1398,14 +1407,185 @@ function FlowCanvasInner({
   }, [setNodes])
 
   const onAddIndentBlock = useCallback(() => {
+    const id = `indent-${Date.now()}`
     const newNode: Node = {
-      id: `indent-${Date.now()}`,
+      id,
       type: "indentBlock",
       position: { x: 200 + Math.random() * 40, y: 200 + Math.random() * 40 },
-      data: { rows: 1, state: "idle" },
+      data: { rows: 1, level: 1, state: "idle", mergedBlockIds: [id] },
     }
     setNodes((nds) => [...nds, newNode])
   }, [setNodes])
+
+  // ── Unite two indent blocks into a single second-level block ───────────────
+  const uniteIndentBlocks = useCallback(
+    (sourceId: string, targetId: string) => {
+      let unitedNodeId = sourceId
+      let removedNodeId = targetId
+
+      setNodes((currentNodes) => {
+        const src = currentNodes.find((n) => n.id === sourceId)
+        const tgt = currentNodes.find((n) => n.id === targetId)
+        if (!src || !tgt) return currentNodes
+
+        // Keep the one closer to the line rail (smaller X position) as the primary node
+        const primary = src.position.x <= tgt.position.x ? src : tgt
+        const secondary = primary.id === src.id ? tgt : src
+        unitedNodeId = primary.id
+        removedNodeId = secondary.id
+
+        const lvlA = primary.data?.level ?? 1
+        const lvlB = secondary.data?.level ?? 1
+        const newLevel = lvlA + lvlB
+
+        const mergedIds = [
+          ...(primary.data?.mergedBlockIds ?? [primary.id]),
+          ...(secondary.data?.mergedBlockIds ?? [secondary.id]),
+        ]
+
+        setBursts((prev) => [
+          ...prev,
+          { id: `burst-${Date.now()}`, x: secondary.position.x + 30, y: secondary.position.y + 20 },
+        ])
+
+        return currentNodes
+          .filter((n) => n.id !== secondary.id)
+          .map((n) => {
+            if (n.id === primary.id) {
+              return {
+                ...n,
+                data: {
+                  ...n.data,
+                  level: newLevel,
+                  mergedBlockIds: mergedIds,
+                  bump: Date.now(),
+                  state: "connected",
+                },
+              }
+            }
+            return n
+          })
+      })
+
+      // Update edges: remove any edge between the two indent blocks,
+      // and rewire any outgoing edges from the secondary block to the primary block!
+      setEdges((currentEdges) => {
+        const filtered = currentEdges.filter(
+          (e) =>
+            !(e.source === sourceId && e.target === targetId) &&
+            !(e.source === targetId && e.target === sourceId) &&
+            e.target !== removedNodeId
+        )
+        return filtered.map((e) => {
+          if (e.source === removedNodeId) {
+            return {
+              ...e,
+              source: unitedNodeId,
+              sourceHandle: "right-0",
+            }
+          }
+          return e
+        })
+      })
+    },
+    [setNodes, setEdges]
+  )
+
+  // ── Separate a multi-level indent block back into individual blocks ─────────
+  const separateIndentBlock = useCallback(
+    (nodeId: string) => {
+      setNodes((currentNodes) => {
+        const targetNode = currentNodes.find((n) => n.id === nodeId)
+        if (!targetNode || (targetNode.data?.level ?? 1) <= 1) return currentNodes
+
+        const currentLevel = targetNode.data?.level ?? 2
+        const mergedIds: string[] = targetNode.data?.mergedBlockIds ?? []
+        const newBlockId = mergedIds[1] || `indent-${Date.now()}`
+
+        // Create the second separated block placed 165px to the right
+        const separatedNode: Node = {
+          id: newBlockId,
+          type: "indentBlock",
+          position: {
+            x: targetNode.position.x + 165,
+            y: targetNode.position.y,
+          },
+          data: {
+            rows: targetNode.data?.rows ?? 1,
+            level: 1,
+            state: "idle",
+            bump: Date.now(),
+            mergedBlockIds: [newBlockId],
+          },
+        }
+
+        const updatedPrimaryNode: Node = {
+          ...targetNode,
+          data: {
+            ...targetNode.data,
+            level: currentLevel - 1,
+            mergedBlockIds: mergedIds.length > 1 ? [mergedIds[0]] : [targetNode.id],
+            bump: Date.now(),
+          },
+        }
+
+        // Transfer outgoing edges from targetNode to separatedNode
+        setEdges((currentEdges) =>
+          currentEdges.map((e) => {
+            if (e.source === nodeId) {
+              return {
+                ...e,
+                source: newBlockId,
+                sourceHandle: e.sourceHandle || "right-0",
+              }
+            }
+            return e
+          })
+        )
+
+        setBursts((prev) => [
+          ...prev,
+          { id: `burst-${Date.now()}`, x: separatedNode.position.x + 30, y: separatedNode.position.y + 20 },
+        ])
+
+        return [...currentNodes.map((n) => (n.id === nodeId ? updatedPrimaryNode : n)), separatedNode]
+      })
+    },
+    [setEdges, setNodes]
+  )
+
+  // Ensure onSeparate callback is attached to all indentBlock nodes
+  useEffect(() => {
+    setNodes((nds) => {
+      let changed = false
+      const updated = nds.map((n) => {
+        if (n.type === "indentBlock" && n.data?.onSeparate !== separateIndentBlock) {
+          changed = true
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              onSeparate: separateIndentBlock,
+            },
+          }
+        }
+        return n
+      })
+      return changed ? updated : nds
+    })
+  }, [separateIndentBlock, setNodes])
+
+  // Automatically unite any existing indent-to-indent connections
+  useEffect(() => {
+    const indentEdge = edges.find((e) => {
+      const src = nodes.find((n) => n.id === e.source)
+      const tgt = nodes.find((n) => n.id === e.target)
+      return src?.type === "indentBlock" && tgt?.type === "indentBlock"
+    })
+    if (indentEdge) {
+      uniteIndentBlocks(indentEdge.source, indentEdge.target)
+    }
+  }, [edges, nodes, uniteIndentBlocks])
 
   // ── canExecute ──────────────────────────────────────────────────────────────
   // A minimal connection count across the code blocks
@@ -1594,6 +1774,17 @@ function FlowCanvasInner({
   const onConnect = useCallback(
     (connection: Connection) => {
       isConnectingRef.current = false
+
+      // If connecting two indent blocks, unite them into a single second-level block
+      if (connection.source && connection.target) {
+        const srcNode = nodes.find((n) => n.id === connection.source)
+        const tgtNode = nodes.find((n) => n.id === connection.target)
+        if (srcNode?.type === "indentBlock" && tgtNode?.type === "indentBlock") {
+          uniteIndentBlocks(connection.source, connection.target)
+          return
+        }
+      }
+
       const newEdge: Edge = {
         ...connection,
         id: `e-${connection.source}-${connection.sourceHandle || ""}-${connection.target}-${Date.now()}`,
@@ -1665,7 +1856,7 @@ function FlowCanvasInner({
         return finalEdges
       })
     },
-    [setEdges, setNodes, removeEdge, isReadOnly]
+    [nodes, uniteIndentBlocks, setEdges, setNodes, removeEdge, isReadOnly]
   )
 
   // ── Helper: Apply Control Flow Visualization to Canvas Nodes & Edges ──────
@@ -1848,6 +2039,25 @@ function FlowCanvasInner({
         targetHandle: e.targetHandle ?? undefined,
       }))
 
+      // For any merged indent blocks that are connected, also include their merged block IDs
+      for (const node of nodes) {
+        if (node.type === "indentBlock" && Array.isArray(node.data?.mergedBlockIds)) {
+          const isConnected = edges.some((e) => e.source === node.id || e.target === node.id)
+          if (isConnected) {
+            for (const mid of node.data.mergedBlockIds) {
+              if (mid !== node.id) {
+                studentConnections.push({
+                  sourceBlockId: node.id,
+                  targetBlockId: mid,
+                  sourceHandle: undefined,
+                  targetHandle: undefined,
+                })
+              }
+            }
+          }
+        }
+      }
+
       const studentBlockOrder = getStudentBlockOrder(edges, nodes)
       const { code: reconstructedCode, lineDetails } = reconstructCodeFromCanvas(nodes, edges)
       setActiveStudentCode(reconstructedCode)
@@ -1917,6 +2127,15 @@ function FlowCanvasInner({
         for (const c of studentConnections) {
           if (c.sourceBlockId) connectedIds.add(c.sourceBlockId)
           if (c.targetBlockId) connectedIds.add(c.targetBlockId)
+        }
+        for (const node of nodes) {
+          if (node.type === "indentBlock" && Array.isArray(node.data?.mergedBlockIds)) {
+            if (connectedIds.has(node.id)) {
+              for (const mid of node.data.mergedBlockIds) {
+                connectedIds.add(mid)
+              }
+            }
+          }
         }
         const codeOnlyBlocks = blocks.filter((b) => b.tipo === "codigo")
         const indentBlocks = blocks.filter((b) => b.tipo === "indentacion")

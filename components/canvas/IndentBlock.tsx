@@ -1,13 +1,16 @@
 'use client'
 import { memo, useState, useEffect, useRef } from 'react'
 import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } from 'reactflow'
-import { LayoutTemplate, Plus, Minus, Trash2 } from 'lucide-react'
+import { LayoutTemplate, Plus, Minus, Trash2, Unlink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export type IndentBlockData = {
   rows?: number
+  level?: number
+  mergedBlockIds?: string[]
   onResize?: (rows: number) => void
   onDelete?: (id: string) => void
+  onSeparate?: (id: string) => void
   readOnly?: boolean
   bump?: number
   isExiting?: boolean
@@ -20,6 +23,7 @@ const ROW_HEIGHT = 64
 const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) => {
   const { setNodes, setEdges } = useReactFlow()
   const [rows, setRows] = useState<number>(data?.rows ?? 1)
+  const level = data?.level ?? 1
   const [isHovered, setIsHovered] = useState(false)
   const updateNodeInternals = useUpdateNodeInternals()
   const { bump, isExiting, entranceDelay = 0 } = data || {}
@@ -90,12 +94,19 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
     setEdges((eds) => eds.filter((e) => e.source !== id && e.target !== id))
   }
 
+  const handleSeparate = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    data?.onSeparate?.(id)
+  }
+
   const handleAnimationEnd = (e: React.AnimationEvent) => {
     if (e.animationName.includes('cartoonBounceIn')) {
       setHasEntered(true)
     }
     updateNodeInternals(id)
   }
+
+  const isMultiLevel = level > 1
 
   return (
     <div
@@ -110,7 +121,8 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
         animationDelay: isBumping ? '0s' : `${entranceDelay}s`,
       }}
       className={cn(
-        'relative rounded-xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none w-[112px] transition-all cursor-grab active:cursor-grabbing group overflow-visible',
+        'relative rounded-xl border border-zinc-400 bg-zinc-200/95 shadow-md backdrop-blur-xs select-none transition-all cursor-grab active:cursor-grabbing group overflow-visible',
+        isMultiLevel ? 'w-[152px] border-indigo-300/80 bg-zinc-100/95' : 'w-[112px]',
         isExiting
           ? 'animate-cartoon-out'
           : !hasEntered
@@ -171,19 +183,34 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
                       Indent
                     </span>
                   </div>
-                  <span className="text-[8.5px] font-mono text-zinc-500 font-medium">
-                    1..{rows}
-                  </span>
+                  {isMultiLevel ? (
+                    <span className="text-[8px] font-mono px-1 py-0.2 rounded bg-indigo-100 text-indigo-700 font-bold border border-indigo-200">
+                      Nivel {level}
+                    </span>
+                  ) : (
+                    <span className="text-[8.5px] font-mono text-zinc-500 font-medium">
+                      1..{rows}
+                    </span>
+                  )}
                 </div>
               ) : (
                 <div className="h-2" />
               )}
 
               {/* Center level indicator */}
-              <div className="flex items-center justify-center -my-1">
-                <span className="text-[11px] font-mono text-zinc-700 font-bold select-none text-center">
-                  nivel {i + 1}
+              <div className="flex flex-col items-center justify-center -my-1">
+                <span className="text-[11px] font-mono text-zinc-800 font-bold select-none text-center leading-tight">
+                  {level === 2
+                    ? 'segundo nivel'
+                    : level > 2
+                    ? `nivel ${level}`
+                    : `nivel ${i + 1}`}
                 </span>
+                {isMultiLevel && (
+                  <span className="text-[8px] font-mono text-indigo-600 font-medium select-none">
+                    ({level * 4} espacios)
+                  </span>
+                )}
               </div>
 
               {/* Bottom micro-controls on last row */}
@@ -191,24 +218,38 @@ const IndentBlock = memo(({ id, data, selected }: NodeProps<IndentBlockData>) =>
                 <div className="flex items-center justify-center pb-1">
                   {!data?.readOnly && (
                     <div className="flex items-center gap-1.5 nodrag nopan">
-                      {rows > 1 && (
+                      {isMultiLevel ? (
                         <button
                           type="button"
-                          onClick={removeRow}
-                          className="w-4 h-4 rounded bg-zinc-300 hover:bg-zinc-400 text-zinc-800 flex items-center justify-center transition cursor-pointer"
-                          title="Quitar nivel"
+                          onClick={handleSeparate}
+                          className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-zinc-800 hover:bg-zinc-900 text-white text-[8.5px] font-mono font-medium shadow-xs transition cursor-pointer"
+                          title="Separar en bloques individuales de nivel 1"
                         >
-                          <Minus className="w-2.5 h-2.5" />
+                          <Unlink className="w-2.5 h-2.5" />
+                          <span>Separar</span>
                         </button>
+                      ) : (
+                        <>
+                          {rows > 1 && (
+                            <button
+                              type="button"
+                              onClick={removeRow}
+                              className="w-4 h-4 rounded bg-zinc-300 hover:bg-zinc-400 text-zinc-800 flex items-center justify-center transition cursor-pointer"
+                              title="Quitar nivel"
+                            >
+                              <Minus className="w-2.5 h-2.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={addRow}
+                            className="w-4 h-4 rounded bg-zinc-800 hover:bg-zinc-900 text-white flex items-center justify-center transition cursor-pointer"
+                            title="Agregar nivel"
+                          >
+                            <Plus className="w-2.5 h-2.5" />
+                          </button>
+                        </>
                       )}
-                      <button
-                        type="button"
-                        onClick={addRow}
-                        className="w-4 h-4 rounded bg-zinc-800 hover:bg-zinc-900 text-white flex items-center justify-center transition cursor-pointer"
-                        title="Agregar nivel"
-                      >
-                        <Plus className="w-2.5 h-2.5" />
-                      </button>
                     </div>
                   )}
                 </div>

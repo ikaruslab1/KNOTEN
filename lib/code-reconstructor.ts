@@ -84,6 +84,7 @@ type RawLineSegment = {
   edgeIds: string[]
   indentNodeIds: string[]
   indentRowIndices: number[]
+  indentLevels: number[]
   inlineForcedIndent?: number
 }
 
@@ -100,6 +101,7 @@ function classifyLineKind(trimmed: string): 'if' | 'elif' | 'else' | 'statement'
  * 2. Both mental models for `IndentBlock` work seamlessly:
  *    - Stretching a single `IndentBlock` across multiple rows for the same block or nested blocks
  *    - Placing separate `IndentBlock`s per line or chaining `IndentBlock`s horizontally for nested levels
+ *    - Fused multi-level IndentBlocks (e.g. level 2 / segundo nivel)
  */
 function resolveSegmentsToLines(segments: RawLineSegment[]): ReconstructedLineDetail[] {
   const details: ReconstructedLineDetail[] = []
@@ -124,12 +126,16 @@ function resolveSegmentsToLines(segments: RawLineSegment[]): ReconstructedLineDe
     } else {
       const lastIndentId = seg.indentNodeIds[seg.indentNodeIds.length - 1]
       const lastRowIdx = seg.indentRowIndices[seg.indentRowIndices.length - 1] ?? 0
+      const totalBlockLevel =
+        seg.indentLevels && seg.indentLevels.length > 0
+          ? seg.indentLevels.reduce((sum, lvl) => sum + lvl, 0)
+          : seg.indentNodeIds.length
 
       if (isElifOrElse) {
         // `elif` and `else` with IndentBlock(s) must pair with an open `if` at indent >= 1
         const rawCandidate =
-          seg.indentNodeIds.length > 1
-            ? seg.indentNodeIds.length
+          totalBlockLevel > 1
+            ? totalBlockLevel
             : indentNodeBaseLevel.get(lastIndentId) ?? lastRowIdx + 1
 
         const validOpenIndents = openIfIndents.filter((lvl) => lvl >= 1 && lvl <= prevIndent)
@@ -143,15 +149,14 @@ function resolveSegmentsToLines(segments: RawLineSegment[]): ReconstructedLineDe
         }
       } else if (prevEndsWithColon) {
         // In Python, a statement with an IndentBlock immediately after a `:` header at `prevIndent`
-        // MUST be indented at `prevIndent + 1`.
-        indentLevel = prevIndent + 1
+        // MUST be indented at `prevIndent + 1`. If explicitly marked with higher level, honor it.
+        indentLevel = Math.max(prevIndent + 1, totalBlockLevel)
         indentNodeBaseLevel.set(lastIndentId, indentLevel)
       } else {
         // Continuation line inside an already-open indented block:
-        // Cannot exceed `prevIndent` in Python when the previous line did not end with `:`.
         let candidate: number
-        if (seg.indentNodeIds.length > 1) {
-          candidate = seg.indentNodeIds.length
+        if (totalBlockLevel > 1) {
+          candidate = totalBlockLevel
         } else if (indentNodeBaseLevel.has(lastIndentId)) {
           candidate = indentNodeBaseLevel.get(lastIndentId)!
         } else {
@@ -325,6 +330,7 @@ function followLineChain(
     edgeIds: initialEdge.id && initialEdge.id !== 'dummy' ? [initialEdge.id] : [],
     indentNodeIds: [],
     indentRowIndices: [],
+    indentLevels: [],
   }
 
   // If initialEdge starts directly from an indentBlock (fallback mode), record that indentBlock
@@ -334,9 +340,18 @@ function followLineChain(
       let rIdx = 0
       const m = (initialEdge.sourceHandle || '').match(/right-(\d+)/)
       if (m) rIdx = parseInt(m[1], 10)
+      const srcLvl = (sourceNode.data?.level as number) || 1
       currentSegment.nodeIds.push(sourceNode.id)
+      if (Array.isArray(sourceNode.data?.mergedBlockIds)) {
+        for (const mid of sourceNode.data.mergedBlockIds) {
+          if (!currentSegment.nodeIds.includes(mid)) {
+            currentSegment.nodeIds.push(mid)
+          }
+        }
+      }
       currentSegment.indentNodeIds.push(sourceNode.id)
       currentSegment.indentRowIndices.push(rIdx)
+      currentSegment.indentLevels.push(srcLvl)
     }
   }
 
@@ -369,12 +384,22 @@ function followLineChain(
           edgeIds: [],
           indentNodeIds: [],
           indentRowIndices: [],
+          indentLevels: [],
         }
       }
 
+      const nodeLvl = (node.data?.level as number) || 1
       currentSegment.nodeIds.push(node.id)
+      if (Array.isArray(node.data?.mergedBlockIds)) {
+        for (const mid of node.data.mergedBlockIds) {
+          if (!currentSegment.nodeIds.includes(mid)) {
+            currentSegment.nodeIds.push(mid)
+          }
+        }
+      }
       currentSegment.indentNodeIds.push(node.id)
       currentSegment.indentRowIndices.push(rowIdx)
+      currentSegment.indentLevels.push(nodeLvl)
 
       const outHandle = `right-${rowIdx}`
       const outEdge =
