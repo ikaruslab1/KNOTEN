@@ -78,7 +78,21 @@ def run_script(source_code, var_defaults=None, script_inputs=None):
     stdout_buf = io.StringIO()
     expr_result = None
     orig_input = builtins.input
+    orig_bool = builtins.bool
+
+    class SmartBool(int):
+        pass
+
+    def smart_bool(val=False):
+        if isinstance(val, str):
+            norm = val.strip().lower()
+            if norm in ('', 'false', '0'):
+                return False
+            return True
+        return orig_bool(val)
+
     builtins.input = mock_input
+    env['bool'] = smart_bool
 
     try:
         with contextlib.redirect_stdout(stdout_buf):

@@ -1913,16 +1913,42 @@ function FlowCanvasInner({
                 ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
               )))
 
+        const connectedIds = new Set<string>()
+        for (const c of studentConnections) {
+          if (c.sourceBlockId) connectedIds.add(c.sourceBlockId)
+          if (c.targetBlockId) connectedIds.add(c.targetBlockId)
+        }
+        const codeOnlyBlocks = blocks.filter((b) => b.tipo === "codigo")
+        const indentBlocks = blocks.filter((b) => b.tipo === "indentacion")
+        const allCodeBlocksConnected =
+          codeOnlyBlocks.length <= 1 ||
+          codeOnlyBlocks.every((b) => connectedIds.has(b.id))
+        const indentConnected =
+          indentBlocks.length === 0 ||
+          indentBlocks.every((b) => connectedIds.has(b.id))
+
+        const validFullProgram =
+          studentResult.success &&
+          allCodeBlocksConnected &&
+          indentConnected &&
+          expectedOutput.length === 0
+
         const isOfflineSuccess =
-          comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
+          comp.isSuccess ||
+          matchesExpected ||
+          codeMatches ||
+          orderMatches ||
+          connMatches ||
+          validFullProgram
 
         if (isOfflineSuccess) {
           setTerminalStatus("success")
-          const outputLines = comp.displayOutput
-            ? comp.displayOutput.split("\n")
+          const displayOut = studentResult.stdout || comp.displayOutput
+          const outputLines = displayOut
+            ? displayOut.split("\n")
             : resultadoEsperado
               ? resultadoEsperado.split("\n")
-              : ["Código ejecutado exitosamente sin errores (Modo offline)."]
+              : ["Código ejecutado exitosamente sin errores."]
           setTerminalLines(outputLines)
 
           applySuccessVisualization(studentResult.flowTrace ?? [], lineDetails)
@@ -1944,11 +1970,18 @@ function FlowCanvasInner({
           })
         } else {
           setTerminalStatus("error")
-          const errorLines = comp.responseMessage
-            ? comp.responseMessage.split("\n")
+          let errText = comp.responseMessage
+          if (!studentResult.success && studentResult.stderr) {
+            errText = studentResult.stderr
+          } else if (studentResult.success && !allCodeBlocksConnected) {
+            const connectedCount = codeOnlyBlocks.filter((b) => connectedIds.has(b.id)).length
+            errText = `Faltan bloques por conectar en el lienzo (${connectedCount} de ${codeOnlyBlocks.length} bloques de código conectados).\nConecta todos los bloques del ejercicio e inténtalo de nuevo.`
+          }
+          const errorLines = errText
+            ? errText.split("\n")
             : [
                 "Error: la secuencia de bloques no es correcta.",
-                "Verifica el orden y la conexión de las líneas e inténtalo nuevamente (Modo offline).",
+                "Verifica el orden y la conexión de las líneas e inténtalo nuevamente.",
               ]
           setTerminalLines(errorLines)
 
@@ -1962,13 +1995,19 @@ function FlowCanvasInner({
           )
 
           setTimeout(() => {
-            setEdges([])
+            setEdges((eds) =>
+              eds.map((e) => ({
+                ...e,
+                data: { ...e.data, error: false, animating: false, success: false },
+                style: { stroke: "#18181b", strokeWidth: 2 },
+              }))
+            )
             setNodes((nds) =>
               nds.map((n) => ({
                 ...n,
                 data: {
                   ...n.data,
-                  state: "idle",
+                  state: connectedIds.has(n.id) ? "connected" : "idle",
                   flowBadge: null,
                   lineStatuses: undefined,
                   readOnly: false,
@@ -2078,15 +2117,27 @@ function FlowCanvasInner({
             }))
           )
 
-          // After 1 s: delete all edges and reset node states
+          const connectedIds = new Set<string>()
+          for (const c of studentConnections) {
+            if (c.sourceBlockId) connectedIds.add(c.sourceBlockId)
+            if (c.targetBlockId) connectedIds.add(c.targetBlockId)
+          }
+
+          // After 1 s: restore edge colors without deleting student connections
           setTimeout(() => {
-            setEdges([])
+            setEdges((eds) =>
+              eds.map((e) => ({
+                ...e,
+                data: { ...e.data, error: false, animating: false, success: false },
+                style: { stroke: "#18181b", strokeWidth: 2 },
+              }))
+            )
             setNodes((nds) =>
               nds.map((n) => ({
                 ...n,
                 data: {
                   ...n.data,
-                  state: "idle",
+                  state: connectedIds.has(n.id) ? "connected" : "idle",
                   flowBadge: null,
                   lineStatuses: undefined,
                   readOnly: false,
@@ -2103,7 +2154,6 @@ function FlowCanvasInner({
         ])
       } finally {
         setIsExecuting(false)
-        setPendingPrompts([])
       }
     },
     [
@@ -2143,15 +2193,7 @@ function FlowCanvasInner({
       return
     }
 
-    const prompts = extractInputPrompts(reconstructedCode)
-    if (prompts.length > 0) {
-      setPendingPrompts(prompts)
-      setShowTerminal(true)
-      setTerminalStatus("idle")
-      setTerminalLines([])
-      return
-    }
-
+    setPendingPrompts([])
     executeValidation([])
   }, [canExecute, isExecuting, nodes, edges, executeValidation])
 

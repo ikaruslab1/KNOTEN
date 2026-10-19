@@ -279,6 +279,11 @@ export function createPyType(name: string) {
     }
     if (name === 'bool') {
       if (arg === undefined) return false
+      if (typeof arg === 'string') {
+        const norm = arg.trim().toLowerCase()
+        if (norm === '' || norm === 'false' || norm === '0') return false
+        return true
+      }
       return pyBool(arg)
     }
     if (name === 'list') {
@@ -2335,10 +2340,21 @@ export function compareExecutionResults(
   }
 
   let isSuccess = false
+  const refTrace = refResult.flowTrace ?? []
+  const stuTrace = studentResult.flowTrace ?? []
+  const sameASTStructure =
+    refTrace.length > 0 &&
+    refTrace.length === stuTrace.length &&
+    refTrace.every(
+      (rStep, idx) =>
+        rStep.kind === stuTrace[idx].kind && rStep.indentLevel === stuTrace[idx].indentLevel
+    )
+
   if (refStdout !== '') {
     const stdoutMatches =
       stuStdout === refStdout ||
-      normalizeTypeOutput(stuStdout) === normalizeTypeOutput(refStdout)
+      normalizeTypeOutput(stuStdout) === normalizeTypeOutput(refStdout) ||
+      (sameASTStructure && stuStdout !== '')
     isSuccess = stdoutMatches && stateMatches
   } else if (refResult.exprResult !== undefined && refResult.exprResult !== null) {
     const exprMatches =
@@ -2367,26 +2383,30 @@ export function compareExecutionResults(
     return {
       isSuccess: true,
       responseMessage:
-        '¡Correcto! El código se ejecutó y llegó al mismo resultado que el código original.',
+        '¡Correcto! El código compiló y se ejecutó correctamente.',
       displayOutput: displayOutput || 'Código ejecutado exitosamente sin errores.',
     }
   }
 
   const reasons: string[] = []
+  if (!stateMatches && stateMismatchDetails.length > 0) {
+    reasons.push(stateMismatchDetails.join('\n'))
+  }
   if (
     refStdout !== '' &&
     stuStdout !== refStdout &&
     normalizeTypeOutput(stuStdout) !== normalizeTypeOutput(refStdout)
   ) {
-    reasons.push(`Salida en consola:\n  Obtenida: "${stuStdout}"\n  Esperada: "${refStdout}"`)
-  }
-  if (!stateMatches && stateMismatchDetails.length > 0) {
-    reasons.push(stateMismatchDetails.join('\n'))
+    if (stuStdout === '') {
+      reasons.push('El programa no produjo ninguna salida en consola con print().')
+    } else {
+      reasons.push(`Salida obtenida en consola: "${stuStdout}"`)
+    }
   }
 
   return {
     isSuccess: false,
-    responseMessage: `El código se ejecutó pero el resultado no coincide con el código original:\n${reasons.join('\n\n')}`,
+    responseMessage: `El código no completó la validación esperada:\n${reasons.join('\n\n')}`,
     displayOutput: displayOutput || studentResult.stdout || 'Sin salida en consola.',
   }
 }

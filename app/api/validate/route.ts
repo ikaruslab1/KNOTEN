@@ -230,17 +230,51 @@ export async function POST(request: NextRequest) {
               String(v) === expectedOutput
           )))
 
-    isSuccess = comparison.isSuccess || matchesExpected || (studentResult.success && orderCorrect)
+    // Check if the student connected all code blocks of the activity into a valid, compilable Python program
+    const connectedIds = new Set<string>()
+    for (const c of studentConnections) {
+      if (c.sourceBlockId) connectedIds.add(c.sourceBlockId)
+      if (c.targetBlockId) connectedIds.add(c.targetBlockId)
+    }
+    const codeOnlyBlocks = correctBlocks.filter(
+      (b) => b.tipo === 'codigo' || !b.tipo
+    )
+    const indentBlocks = correctBlocks.filter((b) => b.tipo === 'indentacion')
+    const allCodeBlocksConnected =
+      codeOnlyBlocks.length <= 1 ||
+      codeOnlyBlocks.every((b) => connectedIds.has(b.id as string))
+    const indentConnected =
+      indentBlocks.length === 0 ||
+      indentBlocks.every((b) => connectedIds.has(b.id as string))
+
+    const validFullProgram =
+      studentResult.success &&
+      allCodeBlocksConnected &&
+      indentConnected &&
+      expectedOutput.length === 0
+
+    isSuccess =
+      comparison.isSuccess ||
+      matchesExpected ||
+      (studentResult.success && orderCorrect) ||
+      validFullProgram
     responseMessage = comparison.responseMessage
     executionStdout = comparison.displayOutput
 
-    if ((matchesExpected || (studentResult.success && orderCorrect)) && !comparison.isSuccess) {
+    if (
+      (matchesExpected || (studentResult.success && orderCorrect) || validFullProgram) &&
+      !comparison.isSuccess
+    ) {
       isSuccess = true
       responseMessage = '¡Correcto! El código se ejecutó y produjo el resultado esperado.'
+      executionStdout = studentResult.stdout || comparison.displayOutput
     }
 
     if (!isSuccess && !studentResult.success) {
       responseMessage = studentResult.stderr || 'Error de sintaxis o ejecución en Python.'
+    } else if (!isSuccess && studentResult.success && !allCodeBlocksConnected) {
+      const connectedCount = codeOnlyBlocks.filter((b) => connectedIds.has(b.id as string)).length
+      responseMessage = `Faltan bloques por conectar en el lienzo (${connectedCount} de ${codeOnlyBlocks.length} bloques de código conectados).\nConecta todos los bloques del ejercicio e inténtalo de nuevo.`
     }
   } else {
     // Legacy / fallback: compare block order & connections

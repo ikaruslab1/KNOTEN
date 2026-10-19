@@ -1,6 +1,15 @@
 'use client'
 import { useEffect, useState, useRef, useMemo } from 'react'
-import { X, GitBranch, RotateCcw, CheckCircle2, XCircle, CornerDownRight, Play } from 'lucide-react'
+import {
+  X,
+  GitBranch,
+  RotateCcw,
+  CheckCircle2,
+  XCircle,
+  CornerDownRight,
+  Play,
+  AlertTriangle,
+} from 'lucide-react'
 import confetti from 'canvas-confetti'
 import { cn } from '@/lib/utils'
 import { probeNextInput, type ControlFlowStep } from '@/lib/python-evaluator-js'
@@ -17,7 +26,7 @@ type TerminalModalProps = {
   variableState?: Record<string, string>
 }
 
-const LINE_DELAY_MS = 120
+const LINE_DELAY_MS = 100
 
 function inferDisplayType(rawVal: string): { label: string; colorClass: string } {
   const v = rawVal.trim()
@@ -71,9 +80,13 @@ export default function TerminalModal({
 
   const bodyRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const wasOpenRef = useRef(false)
 
   const hasConditionalFlow = useMemo(
-    () => flowTrace.some((step) => step.kind === 'if' || step.kind === 'elif' || step.kind === 'else'),
+    () =>
+      flowTrace.some(
+        (step) => step.kind === 'if' || step.kind === 'elif' || step.kind === 'else'
+      ),
     [flowTrace]
   )
 
@@ -85,9 +98,11 @@ export default function TerminalModal({
     [pendingPrompts, promptHistory.length, studentCode]
   )
 
-  // Initialize modal state when opened
+  // Initialize modal state ONLY when `isOpen` transitions from false -> true.
+  // This prevents background canvas re-renders from wiping displayedLines while the modal is open.
   useEffect(() => {
     if (!isOpen) {
+      wasOpenRef.current = false
       setDisplayedLines([])
       setDone(false)
       setCurrentPromptIdx(0)
@@ -97,6 +112,11 @@ export default function TerminalModal({
       setIsCollectingInputs(false)
       return
     }
+
+    if (wasOpenRef.current) {
+      return
+    }
+    wasOpenRef.current = true
 
     if (onCompleteInputs && studentCode && /\binput\s*\(/.test(studentCode)) {
       const probe = probeNextInput(studentCode, [])
@@ -128,14 +148,16 @@ export default function TerminalModal({
       }, 50)
     } else {
       setIsCollectingInputs(false)
-      setDisplayedLines([])
-      setDone(false)
     }
   }, [isOpen, pendingPrompts, onCompleteInputs, studentCode])
 
   // Process output lines after input collection is done or when executing directly
   useEffect(() => {
     if (!isOpen || isCollectingInputs) return
+
+    if (!lines || lines.length === 0) {
+      return
+    }
 
     setDisplayedLines([])
     setDone(false)
@@ -151,10 +173,6 @@ export default function TerminalModal({
       }, (i + 1) * LINE_DELAY_MS)
       timeouts.push(t)
     })
-
-    if (lines.length === 0) {
-      setDone(true)
-    }
 
     return () => timeouts.forEach(clearTimeout)
   }, [isOpen, lines, isCollectingInputs])
@@ -357,6 +375,13 @@ export default function TerminalModal({
             <div className="mt-2 text-green-400 font-bold text-sm sm:text-base flex items-center gap-1.5">
               <CheckCircle2 className="w-4 h-4 shrink-0" />
               <span>¡Correcto! Ejecución verificada</span>
+            </div>
+          )}
+
+          {done && status === 'error' && !isCollectingInputs && (
+            <div className="mt-2 text-red-400/90 text-xs flex items-center gap-1.5 pt-2 border-t border-red-900/40">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>Revisa el detalle del error arriba. Cierra esta ventana (×) cuando termines de leerlo.</span>
             </div>
           )}
 
