@@ -29,10 +29,10 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ChevronLeft, ChevronDown, ChevronUp, CheckCircle2, Circle, ArrowRight } from "lucide-react"
 import { cn } from "@/lib/utils"
-import CodeBlock from "./CodeBlock"
+import CodeBlock, { FlowBadgeData } from "./CodeBlock"
 import IndentBlock from "./IndentBlock"
 import StickerNode from "./StickerNode"
-import LineRailNode from "./LineRailNode"
+import LineRailNode, { LineFlowStatus } from "./LineRailNode"
 import RectangleNode, { RectangleSpecialEffect } from "./RectangleNode"
 import Toolbar, { StickerItem } from "./Toolbar"
 import ElasticConnectionLine from "./ElasticConnectionLine"
@@ -41,8 +41,19 @@ import TerminalModal from "@/components/modals/TerminalModal"
 import ProblemModal from "@/components/modals/ProblemModal"
 import BlockInfoModal from "./BlockInfoModal"
 import { inspectPythonBlock, PythonBlockDoc } from "@/lib/python-documentation"
-import { reconstructCodeFromCanvas, reconstructCodeFromBlocks } from "@/lib/code-reconstructor"
-import { evaluatePythonJS, compareExecutionResults, normalizeTypeOutput, extractInputPrompts } from "@/lib/python-evaluator-js"
+import {
+  reconstructCodeFromCanvas,
+  reconstructCodeFromBlocks,
+  type ReconstructedLineDetail,
+} from "@/lib/code-reconstructor"
+import {
+  evaluatePythonJS,
+  compareExecutionResults,
+  normalizeTypeOutput,
+  extractInputPrompts,
+  probeNextInput,
+  type ControlFlowStep,
+} from "@/lib/python-evaluator-js"
 import { saveActivity } from "@/lib/offline/db"
 import { navigateSafely, isOnlineSync } from "@/lib/offline/connectivity"
 
@@ -83,7 +94,7 @@ type EdgeData = {
 
 type AppEdge = Edge<EdgeData>
 
-type NodeState = "idle" | "connected" | "success" | "error"
+type NodeState = "idle" | "connected" | "success" | "error" | "skipped"
 
 export interface FlowCanvasProps {
   activityId: string
@@ -195,7 +206,13 @@ function SpringEdge(props: EdgeProps<EdgeData>) {
   const isSuccess: boolean = data?.success ?? false
   const isError: boolean = data?.error ?? false
 
-  const stroke = isSuccess ? "#22c55e" : isError ? "#ef4444" : selected ? "#000000" : "#18181b"
+  const stroke = isError
+    ? "#ef4444"
+    : isSuccess
+      ? (style?.stroke as string) || "#22c55e"
+      : selected
+        ? "#000000"
+        : "#18181b"
   const strokeWidth = selected ? 2.75 : 2.25
 
   return (
@@ -710,6 +727,9 @@ function FlowCanvasInner({
   const [terminalLines, setTerminalLines] = useState<string[]>([])
   const [terminalStatus, setTerminalStatus] = useState<TerminalStatus>("idle")
   const [pendingPrompts, setPendingPrompts] = useState<string[]>([])
+  const [activeStudentCode, setActiveStudentCode] = useState<string>("")
+  const [activeFlowTrace, setActiveFlowTrace] = useState<ControlFlowStep[]>([])
+  const [activeVarState, setActiveVarState] = useState<Record<string, string>>({})
   const [showProblem, setShowProblem] = useState(false)
   const [isExecuting, setIsExecuting] = useState(false)
 
@@ -1648,6 +1668,170 @@ function FlowCanvasInner({
     [setEdges, setNodes, removeEdge, isReadOnly]
   )
 
+  // ── Helper: Apply Control Flow Visualization to Canvas Nodes & Edges ──────
+  const applySuccessVisualization = useCallback(
+    (flowTrace: ControlFlowStep[], lineDetails: ReconstructedLineDetail[]) => {
+      const hasConditionals = flowTrace.some(
+        (s) => s.kind === "if" || s.kind === "elif" || s.kind === "else"
+      )
+
+      const nodeStateMap = new Map<string, NodeState>()
+      const nodeBadgeMap = new Map<string, FlowBadgeData>()
+      const edgeStyleMap = new Map<
+        string,
+        { stroke: string; strokeDasharray?: string; success: boolean }
+      >()
+      const railStatuses: Record<number, LineFlowStatus> = {}
+      const railIndents: Record<number, number> = {}
+
+      if (hasConditionals && lineDetails.length > 0) {
+        for (const detail of lineDetails) {
+          const step = flowTrace.find((s) => s.lineNumber === detail.lineNumber)
+          if (detail.railLineNumber) {
+            railIndents[detail.railLineNumber] = detail.indentLevel
+          }
+
+          let lineNodeState: NodeState = "success"
+          let lineEdgeStyle = { stroke: "#22c55e", success: true } as {
+            stroke: string
+            strokeDasharray?: string
+            success: boolean
+          }
+          let headerBadge: FlowBadgeData | null = null
+          let rStatus: LineFlowStatus = "executed"
+
+          if (step) {
+            if (step.kind === "if" || step.kind === "elif" || step.kind === "else") {
+              if (step.branchTaken) {
+                lineNodeState = "success"
+                lineEdgeStyle = { stroke: "#22c55e", success: true }
+                rStatus = "branch-true"
+                headerBadge = {
+                  label: step.kind === "else" ? "✓ Else activo" : "✓ True",
+                  tone: step.kind === "else" ? "else" : "true",
+                }
+              } else if (step.executed) {
+                lineNodeState = "connected"
+                lineEdgeStyle = { stroke: "#f59e0b", success: true }
+                rStatus = "branch-false"
+                headerBadge = {
+                  label: "✗ False",
+                  tone: "false",
+                }
+              } else {
+                lineNodeState = "skipped"
+                lineEdgeStyle = { stroke: "#94a3b8", strokeDasharray: "5 4", success: true }
+                rStatus = "skipped"
+                headerBadge = {
+                  label: "↷ Omitido",
+                  tone: "skipped",
+                }
+              }
+            } else {
+              if (step.executed) {
+                lineNodeState = "success"
+                lineEdgeStyle = { stroke: "#22c55e", success: true }
+                rStatus = "executed"
+              } else {
+                lineNodeState = "skipped"
+                lineEdgeStyle = { stroke: "#94a3b8", strokeDasharray: "5 4", success: true }
+                rStatus = "skipped"
+                headerBadge = {
+                  label: "↷ Omitido",
+                  tone: "skipped",
+                }
+              }
+            }
+          }
+
+          if (detail.railLineNumber) {
+            railStatuses[detail.railLineNumber] = rStatus
+          }
+
+          for (const nid of detail.nodeIds) {
+            // If an IndentBlock is shared across multiple lines, prefer 'success' if any line using it was executed
+            const prev = nodeStateMap.get(nid)
+            if (prev !== "success") {
+              nodeStateMap.set(nid, lineNodeState)
+            }
+          }
+
+          // Put the badge on the first codeBlock of this line (e.g. `if`, `elif`, `else`, or first token of skipped line)
+          if (headerBadge) {
+            const firstCodeNodeId = detail.nodeIds.find((nid) => {
+              const n = nodes.find((nd) => nd.id === nid)
+              return n?.type === "codeBlock"
+            })
+            if (firstCodeNodeId) {
+              nodeBadgeMap.set(firstCodeNodeId, headerBadge)
+            }
+          }
+
+          for (const eid of detail.edgeIds) {
+            edgeStyleMap.set(eid, lineEdgeStyle)
+          }
+        }
+      }
+
+      setEdges((eds) =>
+        eds.map((e) => {
+          const custom = edgeStyleMap.get(e.id)
+          if (custom) {
+            return {
+              ...e,
+              data: { ...e.data, success: custom.success, error: false, animating: false },
+              style: {
+                stroke: custom.stroke,
+                strokeWidth: 2.25,
+                ...(custom.strokeDasharray ? { strokeDasharray: custom.strokeDasharray } : {}),
+              },
+            }
+          }
+          return {
+            ...e,
+            data: { ...e.data, success: true, error: false, animating: false },
+            style: { stroke: "#22c55e", strokeWidth: 2 },
+          }
+        })
+      )
+
+      setNodes((nds) =>
+        nds.map((n) => {
+          if (n.type === "sticker" || n.type === "rectangleShape") {
+            return {
+              ...n,
+              draggable: true,
+              data: { ...n.data, readOnly: false },
+            }
+          }
+          if (n.type === "lineRail" || n.id === "line-rail") {
+            return {
+              ...n,
+              draggable: false,
+              data: {
+                ...n.data,
+                readOnly: true,
+                lineStatuses: hasConditionals ? railStatuses : undefined,
+                lineIndents: hasConditionals ? railIndents : undefined,
+              },
+            }
+          }
+          return {
+            ...n,
+            draggable: false,
+            data: {
+              ...n.data,
+              state: nodeStateMap.get(n.id) ?? "success",
+              flowBadge: nodeBadgeMap.get(n.id) ?? null,
+              readOnly: true,
+            },
+          }
+        })
+      )
+    },
+    [nodes, setEdges, setNodes]
+  )
+
   // ── executeValidation ────────────────────────────────────────────────────────
   const executeValidation = useCallback(
     async (collectedInputs: string[] = []) => {
@@ -1665,7 +1849,13 @@ function FlowCanvasInner({
       }))
 
       const studentBlockOrder = getStudentBlockOrder(edges, nodes)
-      const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
+      const { code: reconstructedCode, lineDetails } = reconstructCodeFromCanvas(nodes, edges)
+      setActiveStudentCode(reconstructedCode)
+
+      // Compute local evaluation trace immediately so control-flow trace & variable states are always available
+      const localEvalResult = evaluatePythonJS(reconstructedCode, collectedInputs)
+      setActiveFlowTrace(localEvalResult.flowTrace ?? [])
+      setActiveVarState(localEvalResult.state ?? {})
 
       // Helper for applying local offline Python validation
       const runOfflineValidation = () => {
@@ -1684,11 +1874,13 @@ function FlowCanvasInner({
         const normalizedCorrect = (correctCode || "").trim().replace(/\r\n/g, "\n")
 
         const codeMatches =
+          localEvalResult.success &&
           normalizedReconstructed.length > 0 &&
           (normalizedReconstructed === normalizedCorrect ||
             normalizedReconstructed.replace(/\s+/g, "") === normalizedCorrect.replace(/\s+/g, ""))
 
         const orderMatches =
+          localEvalResult.success &&
           correctBlockIds.length > 0 &&
           studentBlockOrder.length === correctBlockIds.length &&
           studentBlockOrder.every((id, idx) => id === correctBlockIds[idx])
@@ -1697,6 +1889,7 @@ function FlowCanvasInner({
           studentConnections.map((c) => `${c.sourceBlockId}->${c.targetBlockId}`)
         )
         const connMatches =
+          localEvalResult.success &&
           connections.length > 0 &&
           studentConnections.length === connections.length &&
           connections.every((c) =>
@@ -1704,7 +1897,7 @@ function FlowCanvasInner({
           )
 
         const refResult = evaluatePythonJS(correctCode, collectedInputs)
-        const studentResult = evaluatePythonJS(reconstructedCode, collectedInputs)
+        const studentResult = localEvalResult
         const comp = compareExecutionResults(refResult, studentResult)
 
         const expectedOutput = (resultadoEsperado || "").trim()
@@ -1720,7 +1913,8 @@ function FlowCanvasInner({
                 ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput
               )))
 
-        const isOfflineSuccess = comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
+        const isOfflineSuccess =
+          comp.isSuccess || matchesExpected || codeMatches || orderMatches || connMatches
 
         if (isOfflineSuccess) {
           setTerminalStatus("success")
@@ -1731,30 +1925,7 @@ function FlowCanvasInner({
               : ["Código ejecutado exitosamente sin errores (Modo offline)."]
           setTerminalLines(outputLines)
 
-          setEdges((eds) =>
-            eds.map((e) => ({
-              ...e,
-              data: { ...e.data, success: true, error: false, animating: false },
-              style: { stroke: "#22c55e", strokeWidth: 2 },
-            }))
-          )
-
-          setNodes((nds) =>
-            nds.map((n) => {
-              if (n.type === "sticker" || n.type === "rectangleShape") {
-                return {
-                  ...n,
-                  draggable: true,
-                  data: { ...n.data, readOnly: false },
-                }
-              }
-              return {
-                ...n,
-                draggable: false,
-                data: { ...n.data, state: "success", readOnly: true },
-              }
-            })
-          )
+          applySuccessVisualization(studentResult.flowTrace ?? [], lineDetails)
 
           setCompletedMap((prev) => {
             const updated = { ...prev, [activityId]: true }
@@ -1795,7 +1966,13 @@ function FlowCanvasInner({
             setNodes((nds) =>
               nds.map((n) => ({
                 ...n,
-                data: { ...n.data, state: "idle", readOnly: false },
+                data: {
+                  ...n.data,
+                  state: "idle",
+                  flowBadge: null,
+                  lineStatuses: undefined,
+                  readOnly: false,
+                },
               }))
             )
           }, 1000)
@@ -1825,14 +2002,12 @@ function FlowCanvasInner({
             }),
           })
         } catch (networkErr) {
-          // Fall back seamlessly to offline evaluator if network request fails
           console.warn("Network error reaching /api/validate, falling back to offline evaluator:", networkErr)
           runOfflineValidation()
           return
         }
 
         if (!res.ok) {
-          // If status is 503 (offline SW response) or server error, fall back to offline evaluation
           runOfflineValidation()
           return
         }
@@ -1844,6 +2019,18 @@ function FlowCanvasInner({
           return
         }
 
+        const traceToUse: ControlFlowStep[] =
+          Array.isArray(json.flowTrace) && json.flowTrace.length > 0
+            ? json.flowTrace
+            : localEvalResult.flowTrace ?? []
+        const stateToUse: Record<string, string> =
+          json.state && Object.keys(json.state).length > 0
+            ? json.state
+            : localEvalResult.state ?? {}
+
+        setActiveFlowTrace(traceToUse)
+        setActiveVarState(stateToUse)
+
         if (json.success) {
           // ── SUCCESS ──────────────────────────────────────────────────────────
           setTerminalStatus("success")
@@ -1852,32 +2039,7 @@ function FlowCanvasInner({
             : ["Código ejecutado exitosamente sin errores."]
           setTerminalLines(outputLines)
 
-          // Turn all edges green
-          setEdges((eds) =>
-            eds.map((e) => ({
-              ...e,
-              data: { ...e.data, success: true, error: false, animating: false },
-              style: { stroke: "#22c55e", strokeWidth: 2 },
-            }))
-          )
-
-          // Mark code and indent blocks as success + read-only, but keep stickers and rectangles editable
-          setNodes((nds) =>
-            nds.map((n) => {
-              if (n.type === "sticker" || n.type === "rectangleShape") {
-                return {
-                  ...n,
-                  draggable: true,
-                  data: { ...n.data, readOnly: false },
-                }
-              }
-              return {
-                ...n,
-                draggable: false,
-                data: { ...n.data, state: "success", readOnly: true },
-              }
-            })
-          )
+          applySuccessVisualization(traceToUse, lineDetails)
 
           // Mark as completed in local state & localStorage
           setCompletedMap((prev) => {
@@ -1922,7 +2084,13 @@ function FlowCanvasInner({
             setNodes((nds) =>
               nds.map((n) => ({
                 ...n,
-                data: { ...n.data, state: "idle", readOnly: false },
+                data: {
+                  ...n.data,
+                  state: "idle",
+                  flowBadge: null,
+                  lineStatuses: undefined,
+                  readOnly: false,
+                },
               }))
             )
           }, 1000)
@@ -1947,6 +2115,7 @@ function FlowCanvasInner({
       resultadoEsperado,
       setEdges,
       setNodes,
+      applySuccessVisualization,
     ]
   )
 
@@ -1962,8 +2131,19 @@ function FlowCanvasInner({
     if (!canExecute || isExecuting) return
 
     const { code: reconstructedCode } = reconstructCodeFromCanvas(nodes, edges)
-    const prompts = extractInputPrompts(reconstructedCode)
+    setActiveStudentCode(reconstructedCode)
 
+    const probe = probeNextInput(reconstructedCode, [])
+    if (probe.status === "need_input") {
+      const prompts = extractInputPrompts(reconstructedCode)
+      setPendingPrompts(prompts.length > 0 ? prompts : [probe.prompt])
+      setShowTerminal(true)
+      setTerminalStatus("idle")
+      setTerminalLines([])
+      return
+    }
+
+    const prompts = extractInputPrompts(reconstructedCode)
     if (prompts.length > 0) {
       setPendingPrompts(prompts)
       setShowTerminal(true)
@@ -2224,6 +2404,9 @@ function FlowCanvasInner({
         status={terminalStatus}
         pendingPrompts={pendingPrompts}
         onCompleteInputs={handleCompleteInputs}
+        studentCode={activeStudentCode}
+        flowTrace={activeFlowTrace}
+        variableState={activeVarState}
       />
 
       <ProblemModal

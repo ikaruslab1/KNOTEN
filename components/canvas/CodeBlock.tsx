@@ -4,9 +4,15 @@ import { Handle, Position, NodeProps, useUpdateNodeInternals } from 'reactflow'
 import { cn } from '@/lib/utils'
 import { PythonCodeHighlight } from '@/lib/python-syntax'
 
+export type FlowBadgeData = {
+  label: string
+  tone: 'true' | 'false' | 'else' | 'executed' | 'skipped'
+}
+
 export type CodeBlockData = {
   code: string
-  state: 'idle' | 'connected' | 'correct' | 'error'
+  state: 'idle' | 'connected' | 'correct' | 'success' | 'error' | 'skipped'
+  flowBadge?: FlowBadgeData | null
   readOnly?: boolean
   bump?: number
   isExiting?: boolean
@@ -16,12 +22,22 @@ export type CodeBlockData = {
 const borderByState: Record<CodeBlockData['state'], string> = {
   idle: 'border-zinc-300',
   connected: 'border-zinc-800 shadow-sm',
-  correct: 'border-green-500',
+  correct: 'border-green-500 ring-1 ring-green-500/30',
+  success: 'border-green-500 ring-1 ring-green-500/30',
   error: 'border-red-500',
+  skipped: 'border-dashed border-zinc-300 opacity-60 bg-zinc-50/90',
+}
+
+const badgeStyleByTone: Record<FlowBadgeData['tone'], string> = {
+  true: 'bg-emerald-600 text-white border-emerald-700',
+  false: 'bg-amber-500 text-white border-amber-600',
+  else: 'bg-emerald-600 text-white border-emerald-700',
+  executed: 'bg-emerald-50 text-emerald-700 border-emerald-300',
+  skipped: 'bg-zinc-200 text-zinc-600 border-zinc-300',
 }
 
 const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
-  const { code, state, bump, isExiting, entranceDelay = 0 } = data
+  const { code, state = 'idle', flowBadge, bump, isExiting, entranceDelay = 0 } = data
   const updateNodeInternals = useUpdateNodeInternals()
   const [isBumping, setIsBumping] = useState(false)
   const prevBumpRef = useRef(bump)
@@ -83,7 +99,7 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
       }}
       className={cn(
         'relative rounded-lg border shadow-sm bg-white min-w-[56px] w-fit max-w-none transition-all duration-200 select-none cursor-grab active:cursor-grabbing',
-        borderByState[state],
+        borderByState[state] ?? borderByState.idle,
         // Cartoon entrance (runs strictly once on initial entrance) / exit animations
         isExiting
           ? 'animate-cartoon-out'
@@ -98,6 +114,18 @@ const CodeBlock = memo(({ id, data, selected }: NodeProps<CodeBlockData>) => {
           : 'hover:scale-[1.02]'
       )}
     >
+      {/* Control-flow evaluation badge (e.g. ✓ True, ✗ False, ✓ Else, ↷ Omitido) */}
+      {flowBadge && (
+        <span
+          className={cn(
+            'pointer-events-none absolute -top-2.5 left-1/2 -translate-x-1/2 px-1.5 py-0.2 rounded-full border text-[9px] font-mono font-bold tracking-tight whitespace-nowrap shadow-xs z-20',
+            badgeStyleByTone[flowBadge.tone]
+          )}
+        >
+          {flowBadge.label}
+        </span>
+      )}
+
       {/* Error flash overlay */}
       {state === 'error' && (
         <span

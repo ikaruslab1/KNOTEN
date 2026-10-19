@@ -1,3 +1,19 @@
+export type ControlFlowStep = {
+  lineNumber: number
+  indentLevel: number
+  kind: 'if' | 'elif' | 'else' | 'statement'
+  code: string
+  condition?: string
+  conditionResult?: boolean
+  branchTaken?: boolean
+  executed: boolean
+  bodyLines?: number[]
+}
+
+export type InputProbeResult =
+  | { status: 'need_input'; prompt: string; inputIndex: number }
+  | { status: 'complete' }
+
 export type PythonExecutionResult = {
   success: boolean
   stdout: string
@@ -6,6 +22,9 @@ export type PythonExecutionResult = {
   exprResult?: string | null
   testRuns?: Array<{ out: string; state: Record<string, string>; expr: string | null }>
   exitCode?: number | null
+  flowTrace?: ControlFlowStep[]
+  executedLines?: number[]
+  skippedLines?: number[]
 }
 
 export type LogicalStatement = {
@@ -88,7 +107,7 @@ export function splitIntoLogicalStatements(code: string): LogicalStatement[] {
       !inString &&
       !line.trimEnd().endsWith('\\')
     ) {
-      if (current.trim()) {
+      if (cleanPythonComments(current).trim()) {
         statements.push({
           text: current,
           startLine: currentStartLine,
@@ -98,7 +117,7 @@ export function splitIntoLogicalStatements(code: string): LogicalStatement[] {
     }
   }
 
-  if (current.trim()) {
+  if (cleanPythonComments(current).trim()) {
     statements.push({
       text: current,
       startLine: currentStartLine,
@@ -108,10 +127,61 @@ export function splitIntoLogicalStatements(code: string): LogicalStatement[] {
   return statements
 }
 
+// ─── Python Float Wrapper (preserves 10.0 vs 10 distinction in JS) ────────────
+
+export function makePyFloat(n: number): number | Number {
+  const obj = new Number(n)
+  ;(obj as any).__isPyFloat = true
+  return obj
+}
+
+export function isPyFloat(val: unknown): boolean {
+  if (val instanceof Number && (val as any).__isPyFloat) return true
+  if (typeof val === 'number' && !Number.isInteger(val) && !Number.isNaN(val)) return true
+  return false
+}
+
+export function isPyNumeric(val: unknown): boolean {
+  return typeof val === 'number' || val instanceof Number
+}
+
+export function toRawNumber(val: unknown): number {
+  if (val instanceof Number) return val.valueOf()
+  if (typeof val === 'boolean') return val ? 1 : 0
+  return Number(val)
+}
+
+export function pyBool(val: unknown): boolean {
+  if (val === null || val === undefined || val === false) return false
+  if (val === true) return true
+  if (isPyNumeric(val)) return toRawNumber(val) !== 0
+  if (typeof val === 'string') return val.length > 0
+  if (Array.isArray(val)) return val.length > 0
+  if (val instanceof Set) return val.size > 0
+  if (typeof val === 'object') return Object.keys(val as object).length > 0
+  return Boolean(val)
+}
+
+export function pyTypeName(val: unknown): string {
+  if (val === null || val === undefined) return 'NoneType'
+  if (typeof val === 'boolean') return 'bool'
+  if (isPyFloat(val)) return 'float'
+  if (isPyNumeric(val)) return 'int'
+  if (typeof val === 'string') return 'str'
+  if (Array.isArray(val)) return 'list'
+  if (val instanceof Set) return 'set'
+  if (typeof val === 'function') return 'type'
+  if (typeof val === 'object') return 'dict'
+  return typeof val
+}
+
 /**
  * Produces a deterministic JSON string with keys sorted at all levels.
  */
 export function canonicalStringify(val: unknown): string {
+  if (val instanceof Number) {
+    return JSON.stringify(val.valueOf())
+  }
   if (val === null || typeof val !== 'object') {
     return JSON.stringify(val)
   }
@@ -145,50 +215,71 @@ export const PYTHON_BUILTINS_SET = new Set([
 ])
 
 /**
- * Creates a Python-like type constructor and class object (e.g. str, int, bool, list, dict).
+ * Formats a value as standard Python output.
+ */
+export function formatPyValue(val: unknown): string {
+  if (val === null || val === undefined) return 'None'
+  if (val === true) return 'True'
+  if (val === false) return 'False'
+  if (isPyFloat(val)) {
+    const n = toRawNumber(val)
+    if (Number.isFinite(n) && Number.isInteger(n)) {
+      return `${n}.0`
+    }
+    return String(n)
+  }
+  if (val instanceof Number) {
+    return String(val.valueOf())
+  }
+  if (Array.isArray(val)) {
+    return '[' + val.map((item) => (typeof item === 'string' ? `'${item}'` : formatPyValue(item))).join(', ') + ']'
+  }
+  if (typeof val === 'function' && val.toString) return val.toString()
+  return String(val)
+}
+
+/**
+ * Creates a Python-like type constructor and class object (e.g. str, int, float, bool, list, dict).
  */
 export function createPyType(name: string) {
   const fn = function (arg?: unknown) {
     if (name === 'str') {
       if (arg === undefined) return ''
-      if (arg === null) return 'None'
-      if (arg === true) return 'True'
-      if (arg === false) return 'False'
-      return String(arg)
+      return formatPyValue(arg)
     }
     if (name === 'int') {
       if (arg === undefined) return 0
       if (typeof arg === 'boolean') return arg ? 1 : 0
+      if (isPyNumeric(arg)) {
+        return Math.trunc(toRawNumber(arg))
+      }
       if (typeof arg === 'string') {
         const trimmed = arg.trim()
-        if (!trimmed || isNaN(Number(trimmed))) {
+        if (!/^[+-]?\d+$/.test(trimmed)) {
           throw new Error(`ValueError: invalid literal for int() with base 10: '${arg}'`)
         }
-        return Math.trunc(Number(trimmed))
+        return parseInt(trimmed, 10)
       }
-      if (typeof arg === 'number') {
-        return Math.trunc(arg)
-      }
-      return Math.trunc(Number(arg))
+      throw new Error(`TypeError: int() argument must be a string or a real number, not '${pyTypeName(arg)}'`)
     }
     if (name === 'float') {
-      if (arg === undefined) return 0.0
-      if (typeof arg === 'boolean') return arg ? 1.0 : 0.0
+      if (arg === undefined) return makePyFloat(0.0)
+      if (typeof arg === 'boolean') return makePyFloat(arg ? 1.0 : 0.0)
+      if (isPyNumeric(arg)) {
+        return makePyFloat(toRawNumber(arg))
+      }
       if (typeof arg === 'string') {
         const trimmed = arg.trim()
         if (!trimmed || isNaN(Number(trimmed))) {
           throw new Error(`ValueError: could not convert string to float: '${arg}'`)
         }
-        return Number(trimmed)
+        return makePyFloat(Number(trimmed))
       }
-      return Number(arg)
+      throw new Error(`TypeError: float() argument must be a string or a real number, not '${pyTypeName(arg)}'`)
     }
     if (name === 'bool') {
       if (arg === undefined) return false
-      if (typeof arg === 'string') {
-        return arg.length > 0
-      }
-      return Boolean(arg)
+      return pyBool(arg)
     }
     if (name === 'list') {
       if (arg === undefined) return []
@@ -235,11 +326,10 @@ export const PyNoneType = createPyType('NoneType')
  */
 export function pyType(val: unknown) {
   if (val === null || val === undefined) return PyNoneType
-  if (typeof val === 'string') return PyStr
-  if (typeof val === 'number') {
-    return Number.isInteger(val) ? PyInt : PyFloat
-  }
   if (typeof val === 'boolean') return PyBool
+  if (isPyFloat(val)) return PyFloat
+  if (isPyNumeric(val)) return PyInt
+  if (typeof val === 'string') return PyStr
   if (Array.isArray(val)) return PyList
   if (val instanceof Set) return PySet
   if (typeof val === 'function' && ((val as any).__name__ || (val as any).name)) {
@@ -251,6 +341,159 @@ export function pyType(val: unknown) {
 Object.defineProperty(pyType, '__name__', { value: 'type', configurable: true, writable: true })
 Object.defineProperty(pyType, '__name', { value: 'type', configurable: true, writable: true })
 pyType.toString = () => "<class 'type'>"
+
+// ─── Python Runtime Operator Helpers ──────────────────────────────────────────
+
+export function pyAdd(a: unknown, b: unknown): unknown {
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a + b
+  }
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const res = toRawNumber(a) + toRawNumber(b)
+    return isPyFloat(a) || isPyFloat(b) ? makePyFloat(res) : res
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return [...a, ...b]
+  }
+  if (typeof a === 'string') {
+    throw new Error(`TypeError: can only concatenate str (not "${pyTypeName(b)}") to str`)
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for +: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pySub(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const res = toRawNumber(a) - toRawNumber(b)
+    return isPyFloat(a) || isPyFloat(b) ? makePyFloat(res) : res
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for -: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyMul(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const res = toRawNumber(a) * toRawNumber(b)
+    return isPyFloat(a) || isPyFloat(b) ? makePyFloat(res) : res
+  }
+  if (typeof a === 'string' && ( (isPyNumeric(b) && !isPyFloat(b)) || typeof b === 'boolean')) {
+    return a.repeat(Math.max(0, Math.trunc(toRawNumber(b))))
+  }
+  if (typeof b === 'string' && ((isPyNumeric(a) && !isPyFloat(a)) || typeof a === 'boolean')) {
+    return b.repeat(Math.max(0, Math.trunc(toRawNumber(a))))
+  }
+  if (typeof a === 'string' || typeof b === 'string') {
+    const other = typeof a === 'string' ? b : a
+    throw new Error(`TypeError: can't multiply sequence by non-int of type '${pyTypeName(other)}'`)
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for *: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyDiv(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const denom = toRawNumber(b)
+    if (denom === 0) throw new Error('ZeroDivisionError: division by zero')
+    return makePyFloat(toRawNumber(a) / denom)
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for /: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyFloorDiv(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const denom = toRawNumber(b)
+    if (denom === 0) throw new Error('ZeroDivisionError: integer division or modulo by zero')
+    const res = Math.floor(toRawNumber(a) / denom)
+    return isPyFloat(a) || isPyFloat(b) ? makePyFloat(res) : res
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for //: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyMod(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const denom = toRawNumber(b)
+    if (denom === 0) throw new Error('ZeroDivisionError: integer division or modulo by zero')
+    const num = toRawNumber(a)
+    const res = ((num % denom) + denom) % denom
+    return isPyFloat(a) || isPyFloat(b) ? makePyFloat(res) : res
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for %: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyPow(a: unknown, b: unknown): unknown {
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const base = toRawNumber(a)
+    const exp = toRawNumber(b)
+    const res = Math.pow(base, exp)
+    return isPyFloat(a) || isPyFloat(b) || exp < 0 ? makePyFloat(res) : res
+  }
+  throw new Error(`TypeError: unsupported operand type(s) for **: '${pyTypeName(a)}' and '${pyTypeName(b)}'`)
+}
+
+export function pyCompare(op: string, a: unknown, b: unknown): boolean {
+  if (op === '==') {
+    if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+      return toRawNumber(a) === toRawNumber(b)
+    }
+    if (typeof a === 'string' && typeof b === 'string') {
+      return a === b
+    }
+    if ((a === null || a === undefined) && (b === null || b === undefined)) {
+      return true
+    }
+    if (typeof a === 'object' && a !== null && typeof b === 'object' && b !== null && !isPyNumeric(a) && !isPyNumeric(b)) {
+      return canonicalStringify(a) === canonicalStringify(b)
+    }
+    return a === b
+  }
+  if (op === '!=') {
+    return !pyCompare('==', a, b)
+  }
+  if (op === 'is') {
+    if ((a === null || a === undefined) && (b === null || b === undefined)) return true
+    if (isPyNumeric(a) && isPyNumeric(b) && isPyFloat(a) === isPyFloat(b)) {
+      return toRawNumber(a) === toRawNumber(b)
+    }
+    return a === b
+  }
+  if (op === 'is not') {
+    return !pyCompare('is', a, b)
+  }
+  if (op === 'in' || op === 'not in') {
+    let found = false
+    if (typeof b === 'string') {
+      if (typeof a !== 'string') {
+        throw new Error(`TypeError: 'in <string>' requires string as left operand, not ${pyTypeName(a)}`)
+      }
+      found = b.includes(a)
+    } else if (Array.isArray(b)) {
+      found = b.some((item) => pyCompare('==', a, item))
+    } else if (b instanceof Set) {
+      found = Array.from(b).some((item) => pyCompare('==', a, item))
+    } else if (typeof b === 'object' && b !== null) {
+      found = String(a) in (b as Record<string, unknown>)
+    } else {
+      throw new Error(`TypeError: argument of type '${pyTypeName(b)}' is not iterable`)
+    }
+    return op === 'in' ? found : !found
+  }
+
+  // Relational ordering: <, <=, >, >=
+  if ((isPyNumeric(a) || typeof a === 'boolean') && (isPyNumeric(b) || typeof b === 'boolean')) {
+    const na = toRawNumber(a)
+    const nb = toRawNumber(b)
+    if (op === '<') return na < nb
+    if (op === '<=') return na <= nb
+    if (op === '>') return na > nb
+    if (op === '>=') return na >= nb
+  }
+  if (typeof a === 'string' && typeof b === 'string') {
+    if (op === '<') return a < b
+    if (op === '<=') return a <= b
+    if (op === '>') return a > b
+    if (op === '>=') return a >= b
+  }
+  throw new Error(
+    `TypeError: '${op}' not supported between instances of '${pyTypeName(a)}' and '${pyTypeName(b)}'`
+  )
+}
 
 /**
  * Returns a fresh scope pre-loaded with Python standard built-in functions.
@@ -267,47 +510,72 @@ export function getBuiltinScope(): Record<string, unknown> {
     tuple: PyTuple,
     set: PySet,
     len: (val: unknown) => {
-      if (val === null || val === undefined) return 0
+      if (val === null || val === undefined) {
+        throw new Error("TypeError: object of type 'NoneType' has no len()")
+      }
       if (typeof val === 'string' || Array.isArray(val)) return val.length
-      if (typeof val === 'object') return Object.keys(val as object).length
-      return 0
+      if (val instanceof Set) return val.size
+      if (typeof val === 'object' && !isPyNumeric(val)) return Object.keys(val as object).length
+      throw new Error(`TypeError: object of type '${pyTypeName(val)}' has no len()`)
     },
     range: (start: number, stop?: number, step = 1) => {
-      if (stop === undefined) {
-        stop = start
-        start = 0
-      }
+      const s0 = toRawNumber(start)
+      const st = toRawNumber(step)
+      let a = s0
+      let b = stop !== undefined ? toRawNumber(stop) : s0
+      if (stop === undefined) a = 0
       const res: number[] = []
-      if (step > 0) {
-        for (let i = start; i < stop; i += step) res.push(i)
-      } else if (step < 0) {
-        for (let i = start; i > stop; i += step) res.push(i)
+      if (st > 0) {
+        for (let i = a; i < b; i += st) res.push(i)
+      } else if (st < 0) {
+        for (let i = a; i > b; i += st) res.push(i)
       }
       return res
     },
-    abs: (val: unknown) => Math.abs(Number(val)),
-    round: (val: unknown, n = 0) => {
-      const f = Math.pow(10, n)
-      return Math.round(Number(val) * f) / f
+    abs: (val: unknown) => {
+      const n = Math.abs(toRawNumber(val))
+      return isPyFloat(val) ? makePyFloat(n) : n
     },
+    round: (val: unknown, n?: number) => {
+      const num = toRawNumber(val)
+      if (n === undefined) return Math.round(num)
+      const f = Math.pow(10, toRawNumber(n))
+      return makePyFloat(Math.round(num * f) / f)
+    },
+    pow: (a: unknown, b: unknown) => pyPow(a, b),
     sum: (arr: unknown[], start = 0) =>
-      Array.isArray(arr) ? arr.reduce((a: number, b: unknown) => a + Number(b), start) : start,
+      Array.isArray(arr)
+        ? arr.reduce((a: number, b: unknown) => a + toRawNumber(b), toRawNumber(start))
+        : toRawNumber(start),
     min: (...args: any[]) => {
       const items = args.length === 1 && Array.isArray(args[0]) ? args[0] : args
-      return Math.min(...items)
+      return Math.min(...items.map(toRawNumber))
     },
     max: (...args: any[]) => {
       const items = args.length === 1 && Array.isArray(args[0]) ? args[0] : args
-      return Math.max(...items)
+      return Math.max(...items.map(toRawNumber))
     },
     input: () => '',
     isinstance: (val: unknown, targetType: unknown) => {
       if (typeof targetType === 'function') {
         const actualType = pyType(val)
-        return actualType === targetType || (actualType as any).__name__ === (targetType as any).__name__
+        return (
+          actualType === targetType ||
+          (actualType as any).__name__ === (targetType as any).__name__
+        )
       }
       return false
     },
+    __py_bool__: pyBool,
+    __py_add__: pyAdd,
+    __py_sub__: pySub,
+    __py_mul__: pyMul,
+    __py_div__: pyDiv,
+    __py_floordiv__: pyFloorDiv,
+    __py_mod__: pyMod,
+    __py_pow__: pyPow,
+    __py_cmp__: pyCompare,
+    __py_float__: makePyFloat,
   }
 }
 
@@ -370,17 +638,6 @@ export function splitArguments(argsStr: string): string[] {
 }
 
 /**
- * Formats a value as standard Python output.
- */
-export function formatPyValue(val: unknown): string {
-  if (val === null || val === undefined) return 'None'
-  if (val === true) return 'True'
-  if (val === false) return 'False'
-  if (typeof val === 'function' && val.toString) return val.toString()
-  return String(val)
-}
-
-/**
  * Scans code to find genuinely undefined/unbound variables (e.g. free variables in algebraic expressions).
  * Properly ignores assigned variables, for loops, function defs, strings, and Python builtins.
  */
@@ -393,8 +650,8 @@ export function findUndefinedVariables(code: string): Set<string> {
     const trimmed = line.trim()
     if (!trimmed) continue
 
-    // Assignment: var: type = ... OR var = ...
-    const assignMatch = trimmed.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=/)
+    // Assignment: var: type = ... OR var = ... (must NOT match ==)
+    const assignMatch = trimmed.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=(?!=)/)
     if (assignMatch) {
       stored.add(assignMatch[1].trim())
     }
@@ -406,22 +663,19 @@ export function findUndefinedVariables(code: string): Set<string> {
     }
 
     // For loop: for var in ...:
-    const forMatch = trimmed.match(/for\s+([a-zA-Z_]\w*)\s+in/)
+    const forMatch = trimmed.match(/^for\s+([a-zA-Z_]\w*)\s+in\b/)
     if (forMatch) {
       stored.add(forMatch[1].trim())
     }
 
     // Function def: def var(...)
-    const defMatch = trimmed.match(/def\s+([a-zA-Z_]\w*)\s*\(/)
+    const defMatch = trimmed.match(/^def\s+([a-zA-Z_]\w*)\s*\(/)
     if (defMatch) {
       stored.add(defMatch[1].trim())
     }
   }
 
-  // Strip all strings (including prefixed strings: f"...", r"...", etc.)
   let noStrings = cleanCode.replace(/[frbFRB]*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, '""')
-
-  // Strip attribute accesses (.prop)
   noStrings = noStrings.replace(/\.[a-zA-Z_]\w*/g, '')
 
   const rawWords = noStrings.match(/\b[a-zA-Z_]\w*\b/g) || []
@@ -442,7 +696,8 @@ export function findUndefinedVariables(code: string): Set<string> {
 export function extractInputPrompts(code: string): string[] {
   const clean = cleanPythonComments(code)
   const prompts: string[] = []
-  const regex = /\binput\s*\(\s*(?:([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))|([^)]*))\s*\)/g
+  const regex =
+    /\binput\s*\(\s*(?:([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))|([^)]*))\s*\)/g
   let m: RegExpExecArray | null
   while ((m = regex.exec(clean)) !== null) {
     if (m[1]) {
@@ -457,19 +712,174 @@ export function extractInputPrompts(code: string): string[] {
   return prompts
 }
 
+// ─── Python Expression Parser & Evaluator (Full Precedence & Type Fidelity) ──
+
+type ExprToken =
+  | { type: 'number'; raw: string; isFloat: boolean; value: number }
+  | { type: 'string'; raw: string; isFString: boolean; value: string }
+  | { type: 'ident'; value: string }
+  | { type: 'op'; value: string }
+  | { type: 'punct'; value: string }
+
+function tokenizePythonExpr(expr: string): ExprToken[] {
+  const tokens: ExprToken[] = []
+  let i = 0
+  const n = expr.length
+
+  while (i < n) {
+    const ch = expr[i]
+    if (/\s/.test(ch)) {
+      i++
+      continue
+    }
+    if (ch === '#') break
+
+    // Strings (including f-strings, r-strings, triple-quoted strings)
+    if (
+      ch === '"' ||
+      ch === "'" ||
+      ((ch === 'f' || ch === 'F' || ch === 'r' || ch === 'R') &&
+        i + 1 < n &&
+        (expr[i + 1] === '"' || expr[i + 1] === "'"))
+    ) {
+      let isFString = false
+      if (ch === 'f' || ch === 'F') {
+        isFString = true
+        i++
+      } else if (ch === 'r' || ch === 'R') {
+        i++
+      }
+      const quote = expr[i]
+      let isTriple = false
+      if (expr.slice(i, i + 3) === quote.repeat(3)) {
+        isTriple = true
+        i += 3
+      } else {
+        i++
+      }
+      let content = ''
+      let closed = false
+      while (i < n) {
+        if (isTriple && expr.slice(i, i + 3) === quote.repeat(3)) {
+          i += 3
+          closed = true
+          break
+        }
+        if (!isTriple && expr[i] === quote) {
+          i++
+          closed = true
+          break
+        }
+        if (expr[i] === '\\' && i + 1 < n) {
+          const nextCh = expr[i + 1]
+          if (nextCh === 'n') content += '\n'
+          else if (nextCh === 't') content += '\t'
+          else if (nextCh === 'r') content += '\r'
+          else if (nextCh === '\\') content += '\\'
+          else if (nextCh === '"' || nextCh === "'") content += nextCh
+          else content += '\\' + nextCh
+          i += 2
+          continue
+        }
+        content += expr[i]
+        i++
+      }
+      if (!closed) {
+        throw new Error('SyntaxError: unterminated string literal')
+      }
+      tokens.push({ type: 'string', raw: content, isFString, value: content })
+      continue
+    }
+
+    // Numbers (integers & floats, e.g. 42, 3.14, .5, 10.)
+    if (/\d/.test(ch) || (ch === '.' && i + 1 < n && /\d/.test(expr[i + 1]))) {
+      let numStr = ''
+      let hasDot = false
+      let hasExp = false
+      while (i < n) {
+        const c = expr[i]
+        if (/\d/.test(c)) {
+          numStr += c
+          i++
+        } else if (c === '.' && !hasDot && !hasExp) {
+          hasDot = true
+          numStr += c
+          i++
+        } else if ((c === 'e' || c === 'E') && !hasExp) {
+          hasExp = true
+          numStr += c
+          i++
+          if (i < n && (expr[i] === '+' || expr[i] === '-')) {
+            numStr += expr[i]
+            i++
+          }
+        } else if (c === '_') {
+          i++
+        } else {
+          break
+        }
+      }
+      const val = Number(numStr)
+      if (Number.isNaN(val)) {
+        throw new Error(`SyntaxError: invalid numeric literal '${numStr}'`)
+      }
+      tokens.push({ type: 'number', raw: numStr, isFloat: hasDot || hasExp, value: val })
+      continue
+    }
+
+    // Multi-char operators: **, //, ==, !=, <=, >=
+    const twoChar = expr.slice(i, i + 2)
+    if (['**', '//', '==', '!=', '<=', '>='].includes(twoChar)) {
+      tokens.push({ type: 'op', value: twoChar })
+      i += 2
+      continue
+    }
+
+    // Single-char operators
+    if (['+', '-', '*', '/', '%', '<', '>'].includes(ch)) {
+      tokens.push({ type: 'op', value: ch })
+      i++
+      continue
+    }
+
+    // Single '=' inside expression (syntax error unless keyword arg, handled in call args)
+    if (ch === '=') {
+      tokens.push({ type: 'punct', value: '=' })
+      i++
+      continue
+    }
+
+    // Punctuation
+    if (['(', ')', '[', ']', '{', '}', ',', ':', '.'].includes(ch)) {
+      tokens.push({ type: 'punct', value: ch })
+      i++
+      continue
+    }
+
+    // Identifiers & keywords
+    if (/[a-zA-Z_]/.test(ch)) {
+      let id = ''
+      while (i < n && /[a-zA-Z0-9_]/.test(expr[i])) {
+        id += expr[i]
+        i++
+      }
+      tokens.push({ type: 'ident', value: id })
+      continue
+    }
+
+    throw new Error(`SyntaxError: invalid character '${ch}'`)
+  }
+
+  return tokens
+}
+
 /**
- * Transforms a Python expression into equivalent JavaScript, handling:
- * - f-strings: f"Hello, {name}!" -> `Hello, ${name}!`
- * - String literal preservation (no keyword corruption inside strings)
- * - Python floor division `//` (parenthesis-aware Math.floor((A) / (B)))
- * - Python booleans, None, and logical operators (and -> &&, or -> ||, not -> !)
- * - Comparison operators (is None -> === null, is not None -> !== null)
+ * Transforms a Python expression into equivalent JavaScript (kept for compatibility).
  */
 export function transformPythonExprToJS(expr: string): string {
   const clean = cleanPythonComments(expr).trim()
   if (!clean) return ''
 
-  // 1. Extract string literals to protect them from keyword substitution
   const stringLiterals: string[] = []
   let s = clean.replace(
     /([fFrRbBuU]?(?:"""[\s\S]*?"""|'''[\s\S]*?'''|"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'))/g,
@@ -479,7 +889,6 @@ export function transformPythonExprToJS(expr: string): string {
     }
   )
 
-  // 2. Transform f-strings inside string literals
   for (let i = 0; i < stringLiterals.length; i++) {
     const raw = stringLiterals[i]
     if (
@@ -496,88 +905,556 @@ export function transformPythonExprToJS(expr: string): string {
     }
   }
 
-  // 3. Parenthesis-aware floor division // -> Math.floor((A) / (B))
-  let fdivIdx = s.indexOf('//')
-  while (fdivIdx !== -1) {
-    let leftEnd = fdivIdx
-    while (leftEnd > 0 && /\s/.test(s[leftEnd - 1])) leftEnd--
-    let leftStart = leftEnd
-    if (leftEnd > 0 && s[leftEnd - 1] === ')') {
-      let depth = 1
-      leftStart = leftEnd - 1
-      while (leftStart > 0 && depth > 0) {
-        leftStart--
-        if (s[leftStart] === ')') depth++
-        else if (s[leftStart] === '(') depth--
-      }
-    } else {
-      while (leftStart > 0 && /[a-zA-Z0-9_.]/.test(s[leftStart - 1])) {
-        leftStart--
-      }
-    }
-
-    let rightStart = fdivIdx + 2
-    while (rightStart < s.length && /\s/.test(s[rightStart])) rightStart++
-    let rightEnd = rightStart
-    if (rightStart < s.length && s[rightStart] === '(') {
-      let depth = 1
-      rightEnd = rightStart + 1
-      while (rightEnd < s.length && depth > 0) {
-        if (s[rightEnd] === '(') depth++
-        else if (s[rightEnd] === ')') depth--
-        rightEnd++
-      }
-    } else {
-      while (rightEnd < s.length && /[a-zA-Z0-9_.]/.test(s[rightEnd])) {
-        rightEnd++
-      }
-    }
-
-    const left = s.slice(leftStart, leftEnd).trim()
-    const right = s.slice(rightStart, rightEnd).trim()
-    const replacement = `Math.floor((${left}) / (${right}))`
-    s = s.slice(0, leftStart) + replacement + s.slice(rightEnd)
-    fdivIdx = s.indexOf('//')
-  }
-
-  // 4. Transform Python booleans, None, and logical operators
   s = s
     .replace(/\bTrue\b/g, 'true')
     .replace(/\bFalse\b/g, 'false')
     .replace(/\bNone\b/g, 'null')
     .replace(/\band\b/g, '&&')
     .replace(/\bor\b/g, '||')
-    .replace(/\bnot\b\s*/g, '!')
-    .replace(/\bis\s+not\s+null\b/g, '!== null')
-    .replace(/\bis\s+null\b/g, '=== null')
+    .replace(/\bnot\b\s+/g, '!')
     .replace(/\bis\s+not\s+None\b/g, '!== null')
     .replace(/\bis\s+None\b/g, '=== null')
     .replace(/\.__name\b(?!_)/g, '.__name__')
 
-  // 5. Restore string literals
   s = s.replace(/___PY_STR_(\d+)___/g, (_, idx) => stringLiterals[parseInt(idx, 10)])
   return s
 }
 
 /**
- * Safely evaluates a Python expression in the context of the scope.
+ * Evaluates a Python expression using a recursive-descent parser with exact Python
+ * operator precedence, chained comparisons, f-string interpolation, and strict type checking.
  */
-function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
-  const jsExpr = transformPythonExprToJS(expr)
+export function evaluateExpr(expr: string, scope: Record<string, unknown>): unknown {
+  const cleaned = cleanPythonComments(expr).trim()
+  if (!cleaned) return undefined
 
-  const scopeKeys = Object.keys(scope)
-  const scopeVals = Object.values(scope)
+  const tokens = tokenizePythonExpr(cleaned)
+  if (tokens.length === 0) return undefined
 
-  try {
-    const fn = new Function(...scopeKeys, `return (${jsExpr});`)
-    return fn(...scopeVals)
-  } catch (err: unknown) {
-    if (err instanceof ReferenceError) {
-      const missingVar = err.message.replace(/ is not defined.*/, '')
-      throw new Error(`NameError: name '${missingVar}' is not defined`)
-    }
-    throw err
+  let pos = 0
+  let suppressEval = 0
+
+  function peek(): ExprToken | undefined {
+    return tokens[pos]
   }
+
+  function consume(): ExprToken {
+    return tokens[pos++]
+  }
+
+  function matchOp(val: string): boolean {
+    const t = peek()
+    if (t && t.type === 'op' && t.value === val) {
+      pos++
+      return true
+    }
+    return false
+  }
+
+  function matchIdent(val: string): boolean {
+    const t = peek()
+    if (t && t.type === 'ident' && t.value === val) {
+      pos++
+      return true
+    }
+    return false
+  }
+
+  function matchPunct(val: string): boolean {
+    const t = peek()
+    if (t && t.type === 'punct' && t.value === val) {
+      pos++
+      return true
+    }
+    return false
+  }
+
+  function expectPunct(val: string) {
+    if (!matchPunct(val)) {
+      throw new Error(`SyntaxError: expected '${val}'`)
+    }
+  }
+
+  // Conditional expression: X if C else Y, or `or` expression
+  function parseConditional(): unknown {
+    const val = parseOr()
+    const t = peek()
+    if (t && t.type === 'ident' && t.value === 'if') {
+      pos++
+      const cond = parseOr()
+      if (!matchIdent('else')) {
+        throw new Error("SyntaxError: expected 'else' after conditional expression")
+      }
+      const condTrue = suppressEval === 0 && pyBool(cond)
+      if (condTrue) suppressEval++
+      const alt = parseConditional()
+      if (condTrue) suppressEval--
+      return condTrue ? val : alt
+    }
+    return val
+  }
+
+  // `or` (short-circuiting, returns actual Python operand value)
+  function parseOr(): unknown {
+    let left = parseAnd()
+    while (matchIdent('or')) {
+      if (suppressEval > 0 || pyBool(left)) {
+        suppressEval++
+        parseAnd()
+        suppressEval--
+      } else {
+        left = parseAnd()
+      }
+    }
+    return left
+  }
+
+  // `and` (short-circuiting, returns actual Python operand value)
+  function parseAnd(): unknown {
+    let left = parseNot()
+    while (matchIdent('and')) {
+      if (suppressEval > 0 || !pyBool(left)) {
+        suppressEval++
+        parseNot()
+        suppressEval--
+      } else {
+        left = parseNot()
+      }
+    }
+    return left
+  }
+
+  // `not` (binds looser than comparisons in Python!)
+  function parseNot(): unknown {
+    if (matchIdent('not')) {
+      const operand = parseNot()
+      if (suppressEval > 0) return false
+      return !pyBool(operand)
+    }
+    return parseComparison()
+  }
+
+  // Chained comparisons: ==, !=, <, <=, >, >=, is, is not, in, not in
+  function parseComparison(): unknown {
+    const first = parseAdditive()
+    const ops: string[] = []
+    const operands: unknown[] = [first]
+
+    while (true) {
+      const t = peek()
+      if (!t) break
+
+      if (t.type === 'op' && ['==', '!=', '<', '<=', '>', '>='].includes(t.value)) {
+        pos++
+        ops.push(t.value)
+        operands.push(parseAdditive())
+        continue
+      }
+      if (t.type === 'ident' && t.value === 'is') {
+        pos++
+        if (matchIdent('not')) {
+          ops.push('is not')
+        } else {
+          ops.push('is')
+        }
+        operands.push(parseAdditive())
+        continue
+      }
+      if (t.type === 'ident' && t.value === 'in') {
+        pos++
+        ops.push('in')
+        operands.push(parseAdditive())
+        continue
+      }
+      if (
+        t.type === 'ident' &&
+        t.value === 'not' &&
+        tokens[pos + 1]?.type === 'ident' &&
+        tokens[pos + 1]?.value === 'in'
+      ) {
+        pos += 2
+        ops.push('not in')
+        operands.push(parseAdditive())
+        continue
+      }
+      break
+    }
+
+    if (ops.length === 0) return first
+    if (suppressEval > 0) return false
+
+    for (let i = 0; i < ops.length; i++) {
+      if (!pyCompare(ops[i], operands[i], operands[i + 1])) {
+        return false
+      }
+    }
+    return true
+  }
+
+  // Additive: +, -
+  function parseAdditive(): unknown {
+    let left = parseMultiplicative()
+    while (true) {
+      if (matchOp('+')) {
+        const right = parseMultiplicative()
+        if (suppressEval === 0) left = pyAdd(left, right)
+      } else if (matchOp('-')) {
+        const right = parseMultiplicative()
+        if (suppressEval === 0) left = pySub(left, right)
+      } else {
+        break
+      }
+    }
+    return left
+  }
+
+  // Multiplicative: *, /, //, %
+  function parseMultiplicative(): unknown {
+    let left = parseUnary()
+    while (true) {
+      if (matchOp('*')) {
+        const right = parseUnary()
+        if (suppressEval === 0) left = pyMul(left, right)
+      } else if (matchOp('/')) {
+        const right = parseUnary()
+        if (suppressEval === 0) left = pyDiv(left, right)
+      } else if (matchOp('//')) {
+        const right = parseUnary()
+        if (suppressEval === 0) left = pyFloorDiv(left, right)
+      } else if (matchOp('%')) {
+        const right = parseUnary()
+        if (suppressEval === 0) left = pyMod(left, right)
+      } else {
+        break
+      }
+    }
+    return left
+  }
+
+  // Unary: +x, -x
+  function parseUnary(): unknown {
+    if (matchOp('+')) {
+      const v = parseUnary()
+      if (suppressEval > 0) return 0
+      if (!isPyNumeric(v) && typeof v !== 'boolean') {
+        throw new Error(`TypeError: bad operand type for unary +: '${pyTypeName(v)}'`)
+      }
+      return isPyFloat(v) ? makePyFloat(+toRawNumber(v)) : +toRawNumber(v)
+    }
+    if (matchOp('-')) {
+      const v = parseUnary()
+      if (suppressEval > 0) return 0
+      if (!isPyNumeric(v) && typeof v !== 'boolean') {
+        throw new Error(`TypeError: bad operand type for unary -: '${pyTypeName(v)}'`)
+      }
+      return isPyFloat(v) ? makePyFloat(-toRawNumber(v)) : -toRawNumber(v)
+    }
+    return parsePower()
+  }
+
+  // Power: ** (right-associative, binds tighter than unary -)
+  function parsePower(): unknown {
+    const base = parsePostfix()
+    if (matchOp('**')) {
+      const exp = parseUnary()
+      if (suppressEval > 0) return 0
+      return pyPow(base, exp)
+    }
+    return base
+  }
+
+  // Postfix: call `fn(...)`, subscript `x[i]`, attribute `x.attr`
+  function parsePostfix(): unknown {
+    let target = parsePrimary()
+
+    while (true) {
+      if (matchPunct('(')) {
+        const args: unknown[] = []
+        if (!matchPunct(')')) {
+          while (true) {
+            if (
+              peek()?.type === 'ident' &&
+              tokens[pos + 1]?.type === 'punct' &&
+              tokens[pos + 1]?.value === '='
+            ) {
+              pos += 2
+              args.push(parseConditional())
+            } else {
+              args.push(parseConditional())
+            }
+            if (matchPunct(',')) {
+              if (peek()?.type === 'punct' && peek()?.value === ')') break
+              continue
+            }
+            break
+          }
+          expectPunct(')')
+        }
+        if (suppressEval > 0) continue
+        if (typeof target !== 'function') {
+          throw new Error(`TypeError: '${pyTypeName(target)}' object is not callable`)
+        }
+        target = (target as (...a: unknown[]) => unknown)(...args)
+        continue
+      }
+
+      if (matchPunct('[')) {
+        const idxVal = parseConditional()
+        expectPunct(']')
+        if (suppressEval > 0) continue
+        if (Array.isArray(target) || typeof target === 'string') {
+          if (!isPyNumeric(idxVal) || isPyFloat(idxVal)) {
+            throw new Error(`TypeError: indices must be integers, not '${pyTypeName(idxVal)}'`)
+          }
+          let idx = toRawNumber(idxVal)
+          if (idx < 0) idx = target.length + idx
+          if (idx < 0 || idx >= target.length) {
+            throw new Error('IndexError: index out of range')
+          }
+          target = target[idx]
+        } else if (typeof target === 'object' && target !== null) {
+          const key = String(idxVal instanceof Number ? idxVal.valueOf() : idxVal)
+          if (!(key in (target as Record<string, unknown>))) {
+            throw new Error(`KeyError: '${key}'`)
+          }
+          target = (target as Record<string, unknown>)[key]
+        } else {
+          throw new Error(`TypeError: '${pyTypeName(target)}' object is not subscriptable`)
+        }
+        continue
+      }
+
+      if (matchPunct('.')) {
+        const propToken = consume()
+        if (!propToken || propToken.type !== 'ident') {
+          throw new Error('SyntaxError: expected attribute name after "."')
+        }
+        if (suppressEval > 0) continue
+        const prop = propToken.value
+        target = resolvePyAttribute(target, prop)
+        continue
+      }
+
+      break
+    }
+
+    return target
+  }
+
+  function parsePrimary(): unknown {
+    const t = peek()
+    if (!t) {
+      throw new Error('SyntaxError: unexpected end of expression')
+    }
+
+    if (t.type === 'number') {
+      pos++
+      return t.isFloat ? makePyFloat(t.value) : t.value
+    }
+
+    if (t.type === 'string') {
+      pos++
+      if (t.isFString && suppressEval === 0) {
+        return t.value.replace(/\{([^}]+)\}/g, (_, innerExpr: string) => {
+          const colonIdx = innerExpr.lastIndexOf(':')
+          if (
+            colonIdx !== -1 &&
+            !innerExpr.slice(colonIdx).includes('}') &&
+            !innerExpr.slice(0, colonIdx).includes('{')
+          ) {
+            const exprPart = innerExpr.slice(0, colonIdx).trim()
+            const specPart = innerExpr.slice(colonIdx + 1).trim()
+            const evaluated = evaluateExpr(exprPart, scope)
+            const fMatch = specPart.match(/^\.(\d+)f$/)
+            if (fMatch && isPyNumeric(evaluated)) {
+              return toRawNumber(evaluated).toFixed(parseInt(fMatch[1], 10))
+            }
+            return formatPyValue(evaluated)
+          }
+          return formatPyValue(evaluateExpr(innerExpr, scope))
+        })
+      }
+      return t.value
+    }
+
+    if (t.type === 'ident') {
+      pos++
+      if (t.value === 'True') return true
+      if (t.value === 'False') return false
+      if (t.value === 'None') return null
+      if (suppressEval > 0) return null
+      if (t.value in scope) {
+        return scope[t.value]
+      }
+      throw new Error(`NameError: name '${t.value}' is not defined`)
+    }
+
+    // Parenthesized expression or tuple
+    if (matchPunct('(')) {
+      if (matchPunct(')')) return []
+      const first = parseConditional()
+      if (matchPunct(',')) {
+        const items: unknown[] = [first]
+        if (!matchPunct(')')) {
+          while (true) {
+            items.push(parseConditional())
+            if (matchPunct(',')) {
+              if (peek()?.type === 'punct' && peek()?.value === ')') break
+              continue
+            }
+            break
+          }
+          expectPunct(')')
+        }
+        return items
+      }
+      expectPunct(')')
+      return first
+    }
+
+    // List literal [...]
+    if (matchPunct('[')) {
+      const items: unknown[] = []
+      if (!matchPunct(']')) {
+        while (true) {
+          items.push(parseConditional())
+          if (matchPunct(',')) {
+            if (peek()?.type === 'punct' && peek()?.value === ']') break
+            continue
+          }
+          break
+        }
+        expectPunct(']')
+      }
+      return items
+    }
+
+    // Dict or Set literal {...}
+    if (matchPunct('{')) {
+      if (matchPunct('}')) return {}
+      const firstKey = parseConditional()
+      if (matchPunct(':')) {
+        const obj: Record<string, unknown> = {}
+        const firstVal = parseConditional()
+        obj[String(firstKey instanceof Number ? firstKey.valueOf() : firstKey)] = firstVal
+        while (matchPunct(',')) {
+          if (peek()?.type === 'punct' && peek()?.value === '}') break
+          const k = parseConditional()
+          expectPunct(':')
+          const v = parseConditional()
+          obj[String(k instanceof Number ? k.valueOf() : k)] = v
+        }
+        expectPunct('}')
+        return obj
+      } else {
+        const setItems: unknown[] = [firstKey]
+        while (matchPunct(',')) {
+          if (peek()?.type === 'punct' && peek()?.value === '}') break
+          setItems.push(parseConditional())
+        }
+        expectPunct('}')
+        return new Set(setItems)
+      }
+    }
+
+    throw new Error(`SyntaxError: unexpected token '${t.value}'`)
+  }
+
+  const result = parseConditional()
+  if (pos < tokens.length) {
+    throw new Error(`SyntaxError: unexpected token '${tokens[pos].value}'`)
+  }
+  return result
+}
+
+function resolvePyAttribute(target: unknown, prop: string): unknown {
+  if (target === null || target === undefined) {
+    throw new Error(`AttributeError: 'NoneType' object has no attribute '${prop}'`)
+  }
+  if (prop === '__name__' || prop === '__name') {
+    if (typeof target === 'function') {
+      return (target as any).__name__ || target.name || 'type'
+    }
+  }
+  if (typeof target === 'string') {
+    switch (prop) {
+      case 'lower':
+        return () => target.toLowerCase()
+      case 'upper':
+        return () => target.toUpperCase()
+      case 'strip':
+        return (chars?: string) => {
+          if (!chars) return target.trim()
+          const esc = chars.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+          return target.replace(new RegExp(`^[${esc}]+|[${esc}]+$`, 'g'), '')
+        }
+      case 'lstrip':
+        return () => target.trimStart()
+      case 'rstrip':
+        return () => target.trimEnd()
+      case 'capitalize':
+        return () => (target ? target[0].toUpperCase() + target.slice(1).toLowerCase() : '')
+      case 'title':
+        return () =>
+          target.replace(/\b\w+/g, (w) => w[0].toUpperCase() + w.slice(1).toLowerCase())
+      case 'split':
+        return (sep?: string) => (sep === undefined ? target.trim().split(/\s+/) : target.split(sep))
+      case 'replace':
+        return (oldS: string, newS: string) => target.split(String(oldS)).join(String(newS))
+      case 'startswith':
+        return (prefix: string) => target.startsWith(String(prefix))
+      case 'endswith':
+        return (suffix: string) => target.endsWith(String(suffix))
+      case 'isdigit':
+        return () => /^\d+$/.test(target)
+      case 'isalpha':
+        return () => /^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ]+$/.test(target)
+      case 'isalnum':
+        return () => /^[a-zA-Z0-9áéíóúÁÉÍÓÚñÑüÜ]+$/.test(target)
+      case 'count':
+        return (sub: string) => (sub ? target.split(String(sub)).length - 1 : target.length + 1)
+      case 'find':
+        return (sub: string) => target.indexOf(String(sub))
+    }
+  }
+  if (Array.isArray(target)) {
+    switch (prop) {
+      case 'append':
+        return (item: unknown) => {
+          target.push(item)
+          return null
+        }
+      case 'pop':
+        return (idx?: number) => {
+          if (idx === undefined) return target.pop()
+          const i = idx < 0 ? target.length + idx : idx
+          return target.splice(i, 1)[0]
+        }
+      case 'count':
+        return (val: unknown) => target.filter((x) => pyCompare('==', x, val)).length
+    }
+  }
+  if (typeof target === 'object' && target !== null && !isPyNumeric(target)) {
+    const rec = target as Record<string, unknown>
+    switch (prop) {
+      case 'get':
+        return (k: unknown, defVal: unknown = null) => {
+          const key = String(k instanceof Number ? k.valueOf() : k)
+          return key in rec ? rec[key] : defVal
+        }
+      case 'keys':
+        return () => Object.keys(rec)
+      case 'values':
+        return () => Object.values(rec)
+      case 'items':
+        return () => Object.entries(rec)
+    }
+    if (prop in rec) return rec[prop]
+  }
+  if ((target as any)[prop] !== undefined) {
+    return (target as any)[prop]
+  }
+  throw new Error(`AttributeError: '${pyTypeName(target)}' object has no attribute '${prop}'`)
 }
 
 /**
@@ -599,62 +1476,453 @@ export function tryParseJsonOrPythonDict(str: string): unknown {
   return null
 }
 
+// ─── Indentation-Aware AST Parser for Control Flow (`if / elif / else`) ──────
+
+type PreparedStatement = {
+  startLine: number
+  indentSpaces: number
+  trimmed: string
+  kind: 'if' | 'elif' | 'else' | 'statement'
+  condition?: string
+}
+
+type ASTNode =
+  | {
+      type: 'stmt'
+      lineNumber: number
+      indentLevel: number
+      code: string
+    }
+  | {
+      type: 'if_chain'
+      branches: Array<{
+        kind: 'if' | 'elif' | 'else'
+        lineNumber: number
+        indentLevel: number
+        code: string
+        condition?: string
+        body: ASTNode[]
+      }>
+    }
+
+function findHeaderColonIndex(trimmed: string, keywordLen: number): number {
+  let paren = 0
+  let bracket = 0
+  let brace = 0
+  let inStr: string | null = null
+
+  for (let i = keywordLen; i < trimmed.length; i++) {
+    const ch = trimmed[i]
+    const prev = i > 0 ? trimmed[i - 1] : ''
+    if (inStr) {
+      if (ch === inStr && prev !== '\\') inStr = null
+      continue
+    }
+    if (ch === '"' || ch === "'") {
+      inStr = ch
+      continue
+    }
+    if (ch === '(') paren++
+    else if (ch === ')') paren = Math.max(0, paren - 1)
+    else if (ch === '[') bracket++
+    else if (ch === ']') bracket = Math.max(0, bracket - 1)
+    else if (ch === '{') brace++
+    else if (ch === '}') brace = Math.max(0, brace - 1)
+    else if (ch === ':' && paren === 0 && bracket === 0 && brace === 0) {
+      return i
+    }
+  }
+  return -1
+}
+
+function prepareStatements(sourceCode: string): PreparedStatement[] {
+  const rawStmts = splitIntoLogicalStatements(sourceCode)
+  const prepared: PreparedStatement[] = []
+
+  for (const s of rawStmts) {
+    const noComment = cleanPythonComments(s.text)
+    const trimmed = noComment.trim()
+    if (!trimmed) continue
+
+    const leadingMatch = noComment.match(/^([ \t]*)/)
+    const indentSpaces = leadingMatch ? leadingMatch[1].replace(/\t/g, '    ').length : 0
+
+    // Check for `if`, `elif`, `else`
+    if (/^if(?:\s|\()/.test(trimmed) || trimmed === 'if') {
+      const colonIdx = findHeaderColonIndex(trimmed, 2)
+      if (colonIdx === -1) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: expected ':'`
+        )
+      }
+      const cond = trimmed.slice(2, colonIdx).trim()
+      if (!cond) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: invalid syntax (falta la condición del 'if')`
+        )
+      }
+      const trailing = trimmed.slice(colonIdx + 1).trim()
+      prepared.push({
+        startLine: s.startLine,
+        indentSpaces,
+        trimmed: trimmed.slice(0, colonIdx + 1),
+        kind: 'if',
+        condition: cond,
+      })
+      if (trailing) {
+        prepared.push({
+          startLine: s.startLine,
+          indentSpaces: indentSpaces + 4,
+          trimmed: trailing,
+          kind: 'statement',
+        })
+      }
+      continue
+    }
+
+    if (/^elif(?:\s|\()/.test(trimmed) || trimmed === 'elif') {
+      const colonIdx = findHeaderColonIndex(trimmed, 4)
+      if (colonIdx === -1) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: expected ':'`
+        )
+      }
+      const cond = trimmed.slice(4, colonIdx).trim()
+      if (!cond) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: invalid syntax (falta la condición del 'elif')`
+        )
+      }
+      const trailing = trimmed.slice(colonIdx + 1).trim()
+      prepared.push({
+        startLine: s.startLine,
+        indentSpaces,
+        trimmed: trimmed.slice(0, colonIdx + 1),
+        kind: 'elif',
+        condition: cond,
+      })
+      if (trailing) {
+        prepared.push({
+          startLine: s.startLine,
+          indentSpaces: indentSpaces + 4,
+          trimmed: trailing,
+          kind: 'statement',
+        })
+      }
+      continue
+    }
+
+    if (/^else\b/.test(trimmed)) {
+      const colonIdx = findHeaderColonIndex(trimmed, 4)
+      if (colonIdx === -1) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: expected ':'`
+        )
+      }
+      const between = trimmed.slice(4, colonIdx).trim()
+      if (between) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${trimmed}\nSyntaxError: invalid syntax ('else' no lleva condición; usa 'elif')`
+        )
+      }
+      const trailing = trimmed.slice(colonIdx + 1).trim()
+      prepared.push({
+        startLine: s.startLine,
+        indentSpaces,
+        trimmed: 'else:',
+        kind: 'else',
+      })
+      if (trailing) {
+        prepared.push({
+          startLine: s.startLine,
+          indentSpaces: indentSpaces + 4,
+          trimmed: trailing,
+          kind: 'statement',
+        })
+      }
+      continue
+    }
+
+    prepared.push({
+      startLine: s.startLine,
+      indentSpaces,
+      trimmed,
+      kind: 'statement',
+    })
+  }
+
+  return prepared
+}
+
+function parseBlock(
+  stmts: PreparedStatement[],
+  startIdx: number,
+  expectedIndent?: number
+): { nodes: ASTNode[]; nextIdx: number } {
+  if (startIdx >= stmts.length) {
+    return { nodes: [], nextIdx: startIdx }
+  }
+
+  const blockIndent = expectedIndent ?? stmts[startIdx].indentSpaces
+  const nodes: ASTNode[] = []
+  let idx = startIdx
+
+  while (idx < stmts.length) {
+    const s = stmts[idx]
+    if (s.indentSpaces < blockIndent) {
+      break
+    }
+    if (s.indentSpaces > blockIndent) {
+      throw new Error(
+        `  File "<string>", line ${s.startLine}\n    ${s.trimmed}\nIndentationError: unexpected indent`
+      )
+    }
+
+    const indentLevel = Math.max(0, Math.round(blockIndent / 4))
+
+    if (s.kind === 'if') {
+      const branches: Array<{
+        kind: 'if' | 'elif' | 'else'
+        lineNumber: number
+        indentLevel: number
+        code: string
+        condition?: string
+        body: ASTNode[]
+      }> = []
+
+      // Parse `if` body
+      if (idx + 1 >= stmts.length || stmts[idx + 1].indentSpaces <= blockIndent) {
+        throw new Error(
+          `  File "<string>", line ${s.startLine}\n    ${s.trimmed}\nIndentationError: expected an indented block after 'if' statement on line ${s.startLine}`
+        )
+      }
+      const ifBodyIndent = stmts[idx + 1].indentSpaces
+      const ifBodyRes = parseBlock(stmts, idx + 1, ifBodyIndent)
+      branches.push({
+        kind: 'if',
+        lineNumber: s.startLine,
+        indentLevel,
+        code: s.trimmed,
+        condition: s.condition,
+        body: ifBodyRes.nodes,
+      })
+      idx = ifBodyRes.nextIdx
+
+      // Parse zero or more `elif` branches at the same blockIndent
+      while (idx < stmts.length && stmts[idx].indentSpaces === blockIndent && stmts[idx].kind === 'elif') {
+        const elifStmt = stmts[idx]
+        if (idx + 1 >= stmts.length || stmts[idx + 1].indentSpaces <= blockIndent) {
+          throw new Error(
+            `  File "<string>", line ${elifStmt.startLine}\n    ${elifStmt.trimmed}\nIndentationError: expected an indented block after 'elif' statement on line ${elifStmt.startLine}`
+          )
+        }
+        const elifBodyIndent = stmts[idx + 1].indentSpaces
+        const elifBodyRes = parseBlock(stmts, idx + 1, elifBodyIndent)
+        branches.push({
+          kind: 'elif',
+          lineNumber: elifStmt.startLine,
+          indentLevel,
+          code: elifStmt.trimmed,
+          condition: elifStmt.condition,
+          body: elifBodyRes.nodes,
+        })
+        idx = elifBodyRes.nextIdx
+      }
+
+      // Parse optional `else` branch at the same blockIndent
+      if (idx < stmts.length && stmts[idx].indentSpaces === blockIndent && stmts[idx].kind === 'else') {
+        const elseStmt = stmts[idx]
+        if (idx + 1 >= stmts.length || stmts[idx + 1].indentSpaces <= blockIndent) {
+          throw new Error(
+            `  File "<string>", line ${elseStmt.startLine}\n    ${elseStmt.trimmed}\nIndentationError: expected an indented block after 'else' statement on line ${elseStmt.startLine}`
+          )
+        }
+        const elseBodyIndent = stmts[idx + 1].indentSpaces
+        const elseBodyRes = parseBlock(stmts, idx + 1, elseBodyIndent)
+        branches.push({
+          kind: 'else',
+          lineNumber: elseStmt.startLine,
+          indentLevel,
+          code: elseStmt.trimmed,
+          body: elseBodyRes.nodes,
+        })
+        idx = elseBodyRes.nextIdx
+      }
+
+      nodes.push({ type: 'if_chain', branches })
+      continue
+    }
+
+    if (s.kind === 'elif' || s.kind === 'else') {
+      throw new Error(
+        `  File "<string>", line ${s.startLine}\n    ${s.trimmed}\nSyntaxError: invalid syntax ('${s.kind}' debe estar alineado con un bloque 'if' previo)`
+      )
+    }
+
+    nodes.push({
+      type: 'stmt',
+      lineNumber: s.startLine,
+      indentLevel,
+      code: s.trimmed,
+    })
+    idx++
+  }
+
+  return { nodes, nextIdx: idx }
+}
+
+function collectASTLineNumbers(nodes: ASTNode[]): number[] {
+  const lines: number[] = []
+  for (const node of nodes) {
+    if (node.type === 'stmt') {
+      lines.push(node.lineNumber)
+    } else if (node.type === 'if_chain') {
+      for (const b of node.branches) {
+        lines.push(b.lineNumber)
+        lines.push(...collectASTLineNumbers(b.body))
+      }
+    }
+  }
+  return lines
+}
+
+function markSubtreeSkipped(
+  nodes: ASTNode[],
+  flowTrace: ControlFlowStep[],
+  skippedLines: Set<number>
+) {
+  for (const node of nodes) {
+    if (node.type === 'stmt') {
+      skippedLines.add(node.lineNumber)
+      flowTrace.push({
+        lineNumber: node.lineNumber,
+        indentLevel: node.indentLevel,
+        kind: 'statement',
+        code: node.code,
+        executed: false,
+      })
+    } else if (node.type === 'if_chain') {
+      for (const b of node.branches) {
+        skippedLines.add(b.lineNumber)
+        const bodyLines = collectASTLineNumbers(b.body)
+        flowTrace.push({
+          lineNumber: b.lineNumber,
+          indentLevel: b.indentLevel,
+          kind: b.kind,
+          code: b.code,
+          condition: b.condition,
+          branchTaken: false,
+          executed: false,
+          bodyLines,
+        })
+        markSubtreeSkipped(b.body, flowTrace, skippedLines)
+      }
+    }
+  }
+}
+
+class NeedMoreInputSignal extends Error {
+  prompt: string
+  constructor(prompt: string) {
+    super('NEED_MORE_INPUT')
+    this.prompt = prompt
+  }
+}
+
 type SingleRunResult = PythonExecutionResult & {
   undef: Set<string>
 }
 
 /**
- * Executes a single evaluation pass of a Python script with optional mock variable overrides and input values.
+ * Probes the Python code with the currently collected inputs to determine if execution
+ * along the active control-flow path requires another `input()` value from the user.
+ */
+export function probeNextInput(code: string, providedInputs: string[] = []): InputProbeResult {
+  try {
+    runSingleScript(code, undefined, providedInputs, true)
+    return { status: 'complete' }
+  } catch (err: unknown) {
+    if (err instanceof NeedMoreInputSignal) {
+      return {
+        status: 'need_input',
+        prompt: err.prompt,
+        inputIndex: providedInputs.length,
+      }
+    }
+    return { status: 'complete' }
+  }
+}
+
+/**
+ * Executes a single evaluation pass of a Python script with full support for:
+ * - `if`, `elif`, `else` and nested conditionals
+ * - `input()` and `print()`
+ * - Primitive data types (`int`, `float`, `str`, `bool`, `None`) and type casting
+ * - Arithmetic, relational, and logical operators
  */
 function runSingleScript(
   sourceCode: string,
   mockValues?: Record<string, unknown>,
-  inputs?: string[]
+  inputs?: string[],
+  throwOnMissingInput = false
 ): SingleRunResult {
-  const statements = splitIntoLogicalStatements(sourceCode)
+  const undef = findUndefinedVariables(sourceCode)
   const output: string[] = []
   const inputQueue = inputs ? [...inputs] : []
   let inputCount = 0
+
+  let astNodes: ASTNode[] = []
+  try {
+    const prepared = prepareStatements(sourceCode)
+    if (prepared.length > 0 && prepared[0].indentSpaces > 0) {
+      throw new Error(
+        `  File "<string>", line ${prepared[0].startLine}\n    ${prepared[0].trimmed}\nIndentationError: unexpected indent`
+      )
+    }
+    const parsed = parseBlock(prepared, 0, 0)
+    astNodes = parsed.nodes
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    return {
+      success: false,
+      stdout: '',
+      stderr: msg,
+      state: {},
+      exprResult: null,
+      exitCode: 1,
+      undef,
+      flowTrace: [],
+      executedLines: [],
+      skippedLines: [],
+    }
+  }
 
   const scope: Record<string, unknown> = {
     ...getBuiltinScope(),
     print: (...args: any[]) => {
       const line = args.map((a) => formatPyValue(a)).join(' ')
       output.push(line)
-      return undefined
+      return null
     },
     input: (prompt?: unknown) => {
-      const promptStr = prompt !== undefined && prompt !== null ? String(prompt) : ''
-      if (promptStr) {
-        output.push(promptStr)
-      }
-      let val: string
+      const promptStr = prompt !== undefined && prompt !== null ? formatPyValue(prompt) : ''
       if (inputQueue.length > 0) {
-        val = String(inputQueue.shift())
-      } else {
-        const defaults = ['10', '20', '5', '15', '100', 'True', 'Python']
-        val = defaults[inputCount % defaults.length]
+        inputCount++
+        return String(inputQueue.shift())
       }
+      if (throwOnMissingInput) {
+        throw new NeedMoreInputSignal(promptStr)
+      }
+      const defaults = ['10', '20', '5', '15', '100', 'True', 'Python']
+      const val = defaults[inputCount % defaults.length]
       inputCount++
       return val
     },
-    __py_mul__: (a: any, b: any) => {
-      if (typeof a === 'string' && typeof b === 'number') {
-        return a.repeat(Math.max(0, Math.trunc(b)))
-      }
-      if (typeof b === 'string' && typeof a === 'number') {
-        return b.repeat(Math.max(0, Math.trunc(a)))
-      }
-      return Number(a) * Number(b)
-    },
-    __py_floordiv__: (a: any, b: any) => Math.floor(Number(a) / Number(b)),
   }
   const builtinKeys = new Set(Object.keys(scope))
   let lastExprValue: unknown = undefined
 
-  const undef = findUndefinedVariables(sourceCode)
   const mockVars = new Set<string>()
-
   if (mockValues) {
     for (const [k, v] of Object.entries(mockValues)) {
       scope[k] = v
@@ -669,134 +1937,223 @@ function runSingleScript(
     }
   }
 
-  for (const stmt of statements) {
-    const rawText = stmt.text.trim()
-    if (!rawText || rawText.startsWith('#')) continue
+  const flowTrace: ControlFlowStep[] = []
+  const executedLines = new Set<number>()
+  const skippedLines = new Set<number>()
 
-    // Handle print(...)
+  function executeSimpleStmt(node: Extract<ASTNode, { type: 'stmt' }>) {
+    const rawText = node.code.trim()
+    if (!rawText || rawText.startsWith('#') || rawText === 'pass') {
+      executedLines.add(node.lineNumber)
+      flowTrace.push({
+        lineNumber: node.lineNumber,
+        indentLevel: node.indentLevel,
+        kind: 'statement',
+        code: rawText,
+        executed: true,
+      })
+      return
+    }
+
+    executedLines.add(node.lineNumber)
+    flowTrace.push({
+      lineNumber: node.lineNumber,
+      indentLevel: node.indentLevel,
+      kind: 'statement',
+      code: rawText,
+      executed: true,
+    })
+
+    // 1. Handle print(...)
     const printMatch = rawText.match(/^print\s*\(([\s\S]*)\)$/)
     if (printMatch) {
       const argsText = printMatch[1].trim()
       if (!argsText) {
         output.push('')
-        continue
+        return
       }
       const argsList = splitArguments(argsText)
-      try {
-        const evaled = argsList.map((a) => formatPyValue(evaluateExpr(a, scope)))
-        output.push(evaled.join(' '))
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          success: false,
-          stdout: output.join('\n'),
-          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
-          state: {},
-          exprResult: null,
-          exitCode: 1,
-          undef,
+      let sep = ' '
+      let end = ''
+      const positionalArgs: string[] = []
+      for (const a of argsList) {
+        const kwMatch = a.match(/^(sep|end)\s*=\s*([\s\S]+)$/)
+        if (kwMatch) {
+          const kwVal = formatPyValue(evaluateExpr(kwMatch[2], scope))
+          if (kwMatch[1] === 'sep') sep = kwVal
+          else if (kwMatch[1] === 'end') end = kwVal
+        } else {
+          positionalArgs.push(a)
         }
       }
-      continue
+      const evaled = positionalArgs.map((a) => formatPyValue(evaluateExpr(a, scope)))
+      output.push(evaled.join(sep) + (end && end !== '\n' ? end : ''))
+      return
     }
 
-    // Handle augmented assignment: var += expr, var -= expr, etc.
-    const augMatch = rawText.match(/^([a-zA-Z_]\w*)\s*(\+=|-=|\*=|\/=|(?:\/\/=)|%=|\*\*=)\s*([\s\S]+)$/)
+    // 2. Handle augmented assignment: var += expr, var -= expr, etc.
+    const augMatch = rawText.match(
+      /^([a-zA-Z_]\w*)\s*(\+=|-=|\*=|\/=|(?:\/\/=)|%=|\*\*=)\s*([\s\S]+)$/
+    )
     if (augMatch) {
       const varName = augMatch[1].trim()
       const op = augMatch[2].trim()
       const expr = augMatch[3].trim()
 
-      try {
-        const val = evaluateExpr(expr, scope)
-        const cur = scope[varName]
-        if (op === '+=') {
-          if (typeof cur === 'string' || typeof val === 'string') {
-            scope[varName] = String(cur ?? '') + String(val ?? '')
-          } else {
-            scope[varName] = Number(cur ?? 0) + Number(val ?? 0)
-          }
-        } else if (op === '-=') {
-          scope[varName] = Number(cur ?? 0) - Number(val ?? 0)
-        } else if (op === '*=') {
-          if (typeof cur === 'string' && typeof val === 'number') {
-            scope[varName] = cur.repeat(Math.max(0, Math.trunc(val)))
-          } else {
-            scope[varName] = Number(cur ?? 0) * Number(val ?? 0)
-          }
-        } else if (op === '/=') {
-          scope[varName] = Number(cur ?? 0) / Number(val ?? 0)
-        } else if (op === '//=') {
-          scope[varName] = Math.floor(Number(cur ?? 0) / Number(val ?? 0))
-        } else if (op === '%=') {
-          scope[varName] = ((Number(cur ?? 0) % Number(val ?? 0)) + Number(val ?? 0)) % Number(val ?? 0)
-        } else if (op === '**=') {
-          scope[varName] = Math.pow(Number(cur ?? 0), Number(val ?? 0))
-        }
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          success: false,
-          stdout: output.join('\n'),
-          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
-          state: {},
-          exprResult: null,
-          exitCode: 1,
-          undef,
-        }
+      if (!(varName in scope)) {
+        throw new Error(`NameError: name '${varName}' is not defined`)
       }
-      continue
+      const val = evaluateExpr(expr, scope)
+      const cur = scope[varName]
+      if (op === '+=') scope[varName] = pyAdd(cur, val)
+      else if (op === '-=') scope[varName] = pySub(cur, val)
+      else if (op === '*=') scope[varName] = pyMul(cur, val)
+      else if (op === '/=') scope[varName] = pyDiv(cur, val)
+      else if (op === '//=') scope[varName] = pyFloorDiv(cur, val)
+      else if (op === '%=') scope[varName] = pyMod(cur, val)
+      else if (op === '**=') scope[varName] = pyPow(cur, val)
+      return
     }
 
-    // Handle assignment: var: type = expr OR var = expr
-    const assignMatch = rawText.match(/^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=\s*([\s\S]+)$/)
+    // 3. Handle assignment: var: type = expr OR var = expr (must NOT match ==, !=, <=, >=)
+    const assignMatch = rawText.match(
+      /^([a-zA-Z_]\w*)(?:\s*:\s*[\w\[\], ]+)?\s*=(?!=)\s*([\s\S]+)$/
+    )
     if (assignMatch) {
       const varName = assignMatch[1].trim()
       const expr = assignMatch[2].trim()
+      const val = evaluateExpr(expr, scope)
+      scope[varName] = val
+      return
+    }
 
-      try {
-        const val = evaluateExpr(expr, scope)
-        scope[varName] = val
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        return {
-          success: false,
-          stdout: output.join('\n'),
-          stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
-          state: {},
-          exprResult: null,
-          exitCode: 1,
-          undef,
+    // 4. Bare expression evaluation
+    lastExprValue = evaluateExpr(rawText, scope)
+  }
+
+  function executeNodes(nodes: ASTNode[]) {
+    for (const node of nodes) {
+      if (node.type === 'stmt') {
+        try {
+          executeSimpleStmt(node)
+        } catch (err: unknown) {
+          if (err instanceof NeedMoreInputSignal) throw err
+          const msg = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `Traceback (most recent call last):\n  File "<string>", line ${node.lineNumber}, in <module>\n${msg}`
+          )
+        }
+      } else if (node.type === 'if_chain') {
+        let branchAlreadyTaken = false
+
+        for (const branch of node.branches) {
+          const bodyLines = collectASTLineNumbers(branch.body)
+
+          if (branchAlreadyTaken) {
+            // Earlier branch in this if/elif/else chain was taken -> skip this branch header and body
+            skippedLines.add(branch.lineNumber)
+            flowTrace.push({
+              lineNumber: branch.lineNumber,
+              indentLevel: branch.indentLevel,
+              kind: branch.kind,
+              code: branch.code,
+              condition: branch.condition,
+              branchTaken: false,
+              executed: false,
+              bodyLines,
+            })
+            markSubtreeSkipped(branch.body, flowTrace, skippedLines)
+            continue
+          }
+
+          if (branch.kind === 'else') {
+            // `else:` branch is reached and taken
+            branchAlreadyTaken = true
+            executedLines.add(branch.lineNumber)
+            flowTrace.push({
+              lineNumber: branch.lineNumber,
+              indentLevel: branch.indentLevel,
+              kind: 'else',
+              code: branch.code,
+              branchTaken: true,
+              executed: true,
+              bodyLines,
+            })
+            executeNodes(branch.body)
+            continue
+          }
+
+          // `if` or `elif`: evaluate condition
+          let condBool = false
+          try {
+            const condVal = evaluateExpr(branch.condition ?? '', scope)
+            condBool = pyBool(condVal)
+          } catch (err: unknown) {
+            if (err instanceof NeedMoreInputSignal) throw err
+            const msg = err instanceof Error ? err.message : String(err)
+            throw new Error(
+              `Traceback (most recent call last):\n  File "<string>", line ${branch.lineNumber}, in <module>\n${msg}`
+            )
+          }
+
+          executedLines.add(branch.lineNumber)
+          flowTrace.push({
+            lineNumber: branch.lineNumber,
+            indentLevel: branch.indentLevel,
+            kind: branch.kind,
+            code: branch.code,
+            condition: branch.condition,
+            conditionResult: condBool,
+            branchTaken: condBool,
+            executed: true,
+            bodyLines,
+          })
+
+          if (condBool) {
+            branchAlreadyTaken = true
+            executeNodes(branch.body)
+          } else {
+            markSubtreeSkipped(branch.body, flowTrace, skippedLines)
+          }
         }
       }
-      continue
     }
+  }
 
-    // Bare expression evaluation
-    try {
-      lastExprValue = evaluateExpr(rawText, scope)
-      if (lastExprValue !== undefined && output.length === 0) {
-        output.push(formatPyValue(lastExprValue))
-      }
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err)
-      return {
-        success: false,
-        stdout: output.join('\n'),
-        stderr: `Traceback (most recent call last):\n  File "<string>", line ${stmt.startLine}, in <module>\n${msg}`,
-        state: {},
-        exprResult: null,
-        exitCode: 1,
-        undef,
-      }
+  try {
+    executeNodes(astNodes)
+  } catch (err: unknown) {
+    if (err instanceof NeedMoreInputSignal) throw err
+    const msg = err instanceof Error ? err.message : String(err)
+    return {
+      success: false,
+      stdout: output.join('\n'),
+      stderr: msg,
+      state: {},
+      exprResult: null,
+      exitCode: 1,
+      undef,
+      flowTrace,
+      executedLines: Array.from(executedLines),
+      skippedLines: Array.from(skippedLines),
     }
+  }
+
+  if (lastExprValue !== undefined && output.length === 0) {
+    output.push(formatPyValue(lastExprValue))
   }
 
   const state: Record<string, string> = {}
   for (const [k, v] of Object.entries(scope)) {
     if (mockVars.has(k) || builtinKeys.has(k) || PYTHON_BUILTINS_SET.has(k)) continue
     try {
-      state[k] = typeof v === 'object' && v !== null ? canonicalStringify(v) : JSON.stringify(v)
+      if (isPyFloat(v)) {
+        state[k] = formatPyValue(v)
+      } else if (v instanceof Number) {
+        state[k] = String(v.valueOf())
+      } else {
+        state[k] = typeof v === 'object' && v !== null ? canonicalStringify(v) : JSON.stringify(v)
+      }
     } catch {
       state[k] = String(v)
     }
@@ -810,14 +2167,17 @@ function runSingleScript(
     exprResult: lastExprValue !== undefined ? formatPyValue(lastExprValue) : null,
     exitCode: 0,
     undef,
+    flowTrace,
+    executedLines: Array.from(executedLines),
+    skippedLines: Array.from(skippedLines),
   }
 }
 
 /**
- * Lightweight JavaScript fallback evaluator for basic Python scripts.
- * Supports assignments, type annotations, arithmetic, strings, f-strings, comparisons,
- * dictionaries, lists, type inspection (`type(x).__name__`), print statements, and input().
- * Safe for both server-side and browser/offline execution.
+ * Lightweight JavaScript evaluator for Python scripts.
+ * Supports `if`, `elif`, `else`, nested conditionals, `input()`, `print()`,
+ * primitive data types (`int`, `float`, `str`, `bool`, `None`), type casting,
+ * arithmetic, relational, and logical operators, plus control-flow tracing.
  */
 export function evaluatePythonJS(
   code: string,
@@ -832,21 +2192,30 @@ export function evaluatePythonJS(
     { out: firstRun.stdout, state: firstRun.state ?? {}, expr: firstRun.exprResult ?? null },
   ]
 
-  // If there were unbound variables, run a second test run with different prime values
-  // to mathematically verify algebraic equivalence (e.g. x+y == y+x, but x-y != y-x)
+  // If there were unbound variables, run additional test runs with different values
+  // (including negative, zero, and larger numbers) so conditional branches on free variables are verified
   if (firstRun.undef && firstRun.undef.size > 0) {
-    const primes2 = [5, 19, 29, 37, 47, 59]
-    const mock2: Record<string, number> = {}
-    let idx = 0
-    for (const v of Array.from(firstRun.undef).sort()) {
-      mock2[v] = primes2[idx++ % primes2.length]
+    const mockSets = [
+      [5, 19, 29, 37, 47, 59],
+      [0, 0, 0, 0, 0, 0],
+      [-7, -15, -3, -20, -1, -50],
+      [100, 25, 18, 65, 50, 10],
+    ]
+    for (const setVals of mockSets) {
+      const mock: Record<string, number> = {}
+      let idx = 0
+      for (const v of Array.from(firstRun.undef).sort()) {
+        mock[v] = setVals[idx++ % setVals.length]
+      }
+      const extraRun = runSingleScript(code, mock, inputs)
+      if (extraRun.success) {
+        testRuns.push({
+          out: extraRun.stdout,
+          state: extraRun.state ?? {},
+          expr: extraRun.exprResult ?? null,
+        })
+      }
     }
-    const secondRun = runSingleScript(code, mock2, inputs)
-    testRuns.push({
-      out: secondRun.stdout,
-      state: secondRun.state ?? {},
-      expr: secondRun.exprResult ?? null,
-    })
   }
 
   return {
@@ -868,10 +2237,6 @@ export function normalizeTypeOutput(str: string): string {
 
 /**
  * Compares reference code execution results with student code execution results.
- * Verifies that the student's code runs without error and produces the equivalent result:
- * - Matching console stdout (for print-based programs or type inspection)
- * - Matching memory/variable states (for assignments and logic, e.g. fecha = "...", dictionaries, etc.)
- * - Matching multi-run test suites for algebraic expressions (e.g. x+y vs y+x)
  */
 export function compareExecutionResults(
   refResult: PythonExecutionResult,
@@ -913,8 +2278,10 @@ export function compareExecutionResults(
     if (allRunsMatch) {
       return {
         isSuccess: true,
-        responseMessage: '¡Correcto! El código se ejecutó y llegó al mismo resultado que el código original.',
-        displayOutput: studentResult.stdout || studentResult.exprResult || 'Código ejecutado exitosamente.',
+        responseMessage:
+          '¡Correcto! El código se ejecutó y llegó al mismo resultado que el código original.',
+        displayOutput:
+          studentResult.stdout || studentResult.exprResult || 'Código ejecutado exitosamente.',
       }
     }
   }
@@ -933,7 +2300,6 @@ export function compareExecutionResults(
   for (const k of refKeys) {
     let stuKey = k
     if (!(stuKey in stuState)) {
-      // Look for case-insensitive match (e.g. Persona vs persona)
       const found = Object.keys(stuState).find((sk) => sk.toLowerCase() === k.toLowerCase())
       if (found) {
         stuKey = found
@@ -1000,12 +2366,12 @@ export function compareExecutionResults(
   if (isSuccess) {
     return {
       isSuccess: true,
-      responseMessage: '¡Correcto! El código se ejecutó y llegó al mismo resultado que el código original.',
+      responseMessage:
+        '¡Correcto! El código se ejecutó y llegó al mismo resultado que el código original.',
       displayOutput: displayOutput || 'Código ejecutado exitosamente sin errores.',
     }
   }
 
-  // Detailed failure explanation
   const reasons: string[] = []
   if (
     refStdout !== '' &&
@@ -1024,4 +2390,3 @@ export function compareExecutionResults(
     displayOutput: displayOutput || studentResult.stdout || 'Sin salida en consola.',
   }
 }
-

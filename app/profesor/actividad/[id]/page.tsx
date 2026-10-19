@@ -197,6 +197,11 @@ export default async function ProfesorActividadPage({
             contenido: b.contenido ?? '',
             orden_correcto: b.orden_correcto,
             indent_level: b.indent_level,
+            posicion_y: b.posicion_y,
+            line_index:
+              typeof b.posicion_y === 'number'
+                ? Math.max(0, Math.round((b.posicion_y - 80) / 80))
+                : undefined,
           }))}
         />
       </main>

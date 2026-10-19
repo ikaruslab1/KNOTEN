@@ -22,6 +22,7 @@ import {
 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { splitPythonCode, getDefaultPositions, tokenizeLine, type SplitBlock } from '@/lib/code-splitter'
+import { joinTokens, reconstructCodeFromBlocks } from '@/lib/code-reconstructor'
 import { PythonCodeHighlight } from '@/lib/python-syntax'
 import BlockInfoModal from '@/components/canvas/BlockInfoModal'
 import { inspectPythonBlock, PythonBlockDoc } from '@/lib/python-documentation'
@@ -45,89 +46,13 @@ type ToastState = 'idle' | 'saving' | 'success' | 'error'
 type Props = {
   activityId: string
   initialActivity: Activity
-  initialBlocks?: SplitBlock[]
+  initialBlocks?: (SplitBlock & { posicion_y?: number | null })[]
 }
 
 // ─── Helper: reconstruct Python code from blocks ──────────────────────────────
 
-function joinTokens(tokens: string[]): string {
-  let line = ''
-  for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i]
-    const prev = i > 0 ? tokens[i - 1] : null
-
-    if (i === 0) {
-      line += t
-      continue
-    }
-
-    // No space before: ')', ']', '}', ':', ',', '.', ';'
-    if ([')', ']', '}', ':', ',', '.', ';'].includes(t)) {
-      line += t
-      continue
-    }
-
-    // No space after: '(', '[', '{', '.'
-    if (prev && ['(', '[', '{', '.'].includes(prev)) {
-      line += t
-      continue
-    }
-
-    // No space before '(' if preceded by an identifier (function call / definition)
-    if (t === '(' && prev && /^[a-zA-Z_]\w*$/.test(prev)) {
-      line += t
-      continue
-    }
-
-    line += ' ' + t
-  }
-  return line
-}
-
-function reconstructPythonCode(savedBlocks: SplitBlock[]): string {
-  if (!savedBlocks || savedBlocks.length === 0) return ''
-  const sorted = [...savedBlocks].sort((a, b) => a.orden_correcto - b.orden_correcto)
-  const codeBlocks = sorted.filter((b) => b.tipo === 'codigo')
-  if (codeBlocks.length === 0) return ''
-
-  // Group by line: use line_index if available, or detect line change by posicion_y
-  const lines: { indent: number; tokens: string[] }[] = []
-  let currentTokens: string[] = []
-  let currentIndent = codeBlocks[0].indent_level ?? 0
-  const firstBlock = codeBlocks[0] as unknown as { line_index?: number; posicion_y?: number }
-  let currentLineKey =
-    firstBlock.line_index !== undefined
-      ? firstBlock.line_index
-      : firstBlock.posicion_y ?? 0
-
-  for (const b of codeBlocks) {
-    const bTyped = b as unknown as { line_index?: number; posicion_y?: number }
-    const blockLineKey =
-      bTyped.line_index !== undefined
-        ? bTyped.line_index
-        : bTyped.posicion_y !== undefined
-        ? bTyped.posicion_y
-        : null
-
-    const isNewLine = blockLineKey !== null && blockLineKey !== currentLineKey
-
-    if (isNewLine && currentTokens.length > 0) {
-      lines.push({ indent: currentIndent, tokens: currentTokens })
-      currentTokens = []
-      currentIndent = b.indent_level ?? 0
-      currentLineKey = blockLineKey
-    }
-
-    currentTokens.push(b.contenido ?? '')
-  }
-
-  if (currentTokens.length > 0) {
-    lines.push({ indent: currentIndent, tokens: currentTokens })
-  }
-
-  return lines
-    .map((l) => ' '.repeat(Math.max(0, l.indent) * 4) + joinTokens(l.tokens))
-    .join('\n')
+function reconstructPythonCode(savedBlocks: (SplitBlock & { posicion_y?: number | null })[]): string {
+  return reconstructCodeFromBlocks(savedBlocks)
 }
 
 // ─── Helper: detect eliminated/missing characters from original tokens ────────

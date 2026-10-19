@@ -1,6 +1,8 @@
 import { spawn } from 'child_process'
 import {
   type PythonExecutionResult,
+  type ControlFlowStep,
+  type InputProbeResult,
   evaluatePythonJS,
   compareExecutionResults,
   normalizeTypeOutput,
@@ -8,9 +10,10 @@ import {
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,
   extractInputPrompts,
+  probeNextInput,
 } from './python-evaluator-js'
 
-export type { PythonExecutionResult }
+export type { PythonExecutionResult, ControlFlowStep, InputProbeResult }
 export {
   evaluatePythonJS,
   compareExecutionResults,
@@ -19,6 +22,7 @@ export {
   splitIntoLogicalStatements,
   tryParseJsonOrPythonDict,
   extractInputPrompts,
+  probeNextInput,
 }
 
 const PYTHON_HARNESS = `
@@ -62,8 +66,6 @@ def run_script(source_code, var_defaults=None, script_inputs=None):
         input_queue = list(provided_inputs)
 
     def mock_input(prompt=''):
-        if prompt is not None and str(prompt) != '':
-            sys.stdout.write(str(prompt))
         if input_queue:
             return str(input_queue.pop(0))
         defaults = ["10", "20", "5", "15", "100", "True", "Python"]
@@ -119,13 +121,20 @@ try:
     out1, state1, expr1, undef = run_script(code)
     test_runs = [{'out': out1, 'state': state1, 'expr': expr1}]
 
-    # If there were unbound variables, run a second test suite with different values
-    # to mathematically verify algebraic equivalence (e.g. x+y == y+x, but x-y != y-x)
+    # If there were unbound variables, run additional test suites with different values
     if undef:
-        primes2 = [5, 19, 29, 37, 47, 59]
-        mock2 = {v: primes2[idx % len(primes2)] for idx, v in enumerate(sorted(undef))}
-        out2, state2, expr2, _ = run_script(code, mock2)
-        test_runs.append({'out': out2, 'state': state2, 'expr': expr2})
+        for primes_set in [
+            [5, 19, 29, 37, 47, 59],
+            [0, 0, 0, 0, 0, 0],
+            [-7, -15, -3, -20, -1, -50],
+            [100, 25, 18, 65, 50, 10],
+        ]:
+            mock_extra = {v: primes_set[idx % len(primes_set)] for idx, v in enumerate(sorted(undef))}
+            try:
+                out_e, state_e, expr_e, _ = run_script(code, mock_extra)
+                test_runs.append({'out': out_e, 'state': state_e, 'expr': expr_e})
+            except Exception:
+                pass
 
     res = {
         "success": True,
@@ -145,8 +154,9 @@ except Exception as e:
 
 /**
  * Executes a string of Python code with a 3-second timeout.
- * 
- * First attempts to run via the system's Python binary (`python`, `py`, or `python3`) with state capture.
+ *
+ * First attempts to run via the system's Python binary (`python`, `py`, or `python3`) with state capture,
+ * and enriches the result with control-flow trace metadata from `evaluatePythonJS`.
  * If Python is not installed or available on the host system,
  * it falls back to the internal JavaScript sandbox evaluator.
  */
@@ -154,13 +164,19 @@ export async function executePythonCode(
   code: string,
   inputs?: string[]
 ): Promise<PythonExecutionResult> {
+  const jsTraceResult = evaluatePythonJS(code, inputs)
   const binaryResult = await tryExecutePythonBinary(code, inputs)
   if (binaryResult !== null) {
-    return binaryResult
+    return {
+      ...binaryResult,
+      flowTrace: jsTraceResult.flowTrace ?? [],
+      executedLines: jsTraceResult.executedLines ?? [],
+      skippedLines: jsTraceResult.skippedLines ?? [],
+    }
   }
 
   // Fallback: evaluate via JS sandbox
-  return evaluatePythonJS(code, inputs)
+  return jsTraceResult
 }
 
 /**

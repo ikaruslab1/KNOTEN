@@ -5,11 +5,15 @@ import { Handle, Position, NodeProps, useUpdateNodeInternals, useReactFlow } fro
 import { ArrowRight, Hash, Plus, Minus, AlignCenterHorizontal } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+export type LineFlowStatus = 'executed' | 'branch-true' | 'branch-false' | 'skipped'
+
 export type LineRailData = {
   lines?: number
   onLinesChange?: (lines: number) => void
   onAlignLine?: (lineNum: number) => void
   readOnly?: boolean
+  lineStatuses?: Record<number, LineFlowStatus>
+  lineIndents?: Record<number, number>
 }
 
 // 64px row height matches standard Python code block vertical distribution
@@ -99,10 +103,21 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
       <div className="relative">
         {Array.from({ length: lines }).map((_, i) => {
           const lineNum = i + 1
+          const lineStatus = data?.lineStatuses?.[lineNum]
+          const lineIndent = data?.lineIndents?.[lineNum] ?? 0
           return (
             <div
               key={lineNum}
-              className="relative flex items-center justify-between px-3"
+              className={cn(
+                'relative flex items-center justify-between px-3 transition-colors',
+                lineStatus === 'executed' || lineStatus === 'branch-true'
+                  ? 'bg-emerald-50/60'
+                  : lineStatus === 'branch-false'
+                  ? 'bg-amber-50/60'
+                  : lineStatus === 'skipped'
+                  ? 'bg-zinc-100/60 opacity-60'
+                  : ''
+              )}
               style={{ height: RAIL_ROW_HEIGHT }}
             >
               {/* Divider between lines */}
@@ -112,12 +127,36 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
 
               {/* Left side: line number badge */}
               <div className="flex items-center gap-1.5">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-zinc-900 font-mono text-[11px] font-bold text-white shadow-xs">
+                <span
+                  className={cn(
+                    'flex h-5 w-5 shrink-0 items-center justify-center rounded-md font-mono text-[11px] font-bold shadow-xs transition-colors',
+                    lineStatus === 'executed' || lineStatus === 'branch-true'
+                      ? 'bg-emerald-600 text-white'
+                      : lineStatus === 'branch-false'
+                      ? 'bg-amber-500 text-white'
+                      : lineStatus === 'skipped'
+                      ? 'bg-zinc-300 text-zinc-600'
+                      : 'bg-zinc-900 text-white'
+                  )}
+                >
                   {lineNum}
                 </span>
-                <span className="text-[10px] font-mono text-zinc-400">
-                  línea
-                </span>
+                <div className="flex flex-col leading-none">
+                  <span className="text-[10px] font-mono text-zinc-400">
+                    {lineStatus === 'branch-true'
+                      ? '✓ True'
+                      : lineStatus === 'branch-false'
+                      ? '✗ False'
+                      : lineStatus === 'skipped'
+                      ? 'omitida'
+                      : 'línea'}
+                  </span>
+                  {lineIndent > 0 && (
+                    <span className="text-[8.5px] font-mono text-indigo-500 font-semibold mt-0.5">
+                      {'→'.repeat(Math.min(3, lineIndent))} niv.{lineIndent}
+                    </span>
+                  )}
+                </div>
               </div>
 
               {/* Right side: align row button + arrow indicator */}
@@ -135,7 +174,16 @@ const LineRailNode = memo(({ id, data }: NodeProps<LineRailData>) => {
                     <AlignCenterHorizontal className="w-3.5 h-3.5" />
                   </button>
                 )}
-                <ArrowRight className="w-3.5 h-3.5 text-zinc-400" />
+                <ArrowRight
+                  className={cn(
+                    'w-3.5 h-3.5',
+                    lineStatus === 'executed' || lineStatus === 'branch-true'
+                      ? 'text-emerald-600'
+                      : lineStatus === 'branch-false'
+                      ? 'text-amber-500'
+                      : 'text-zinc-400'
+                  )}
+                />
               </div>
 
               {/* Right handle positioned outside card border */}

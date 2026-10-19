@@ -188,6 +188,10 @@ export async function POST(request: NextRequest) {
   let isSuccess = false
   let responseMessage = ''
   let executionStdout = ''
+  let flowTrace: unknown[] = []
+  let executedLines: number[] = []
+  let skippedLines: number[] = []
+  let executionState: Record<string, string> = {}
 
   // ── 6. Dynamic execution validation by comparing against original code ─
   if (typeof reconstructedCode === 'string' && reconstructedCode.trim().length > 0) {
@@ -199,27 +203,38 @@ export async function POST(request: NextRequest) {
       executePythonCode(reconstructedCode, inputs),
     ])
 
+    flowTrace = studentResult.flowTrace ?? []
+    executedLines = studentResult.executedLines ?? []
+    skippedLines = studentResult.skippedLines ?? []
+    executionState = studentResult.state ?? {}
+
     const comparison = compareExecutionResults(refResult, studentResult)
 
     const expectedOutput = (activityData?.resultado_esperado ?? '').trim()
     const stuStdout = (studentResult.stdout ?? '').trim()
     const matchesExpected =
+      studentResult.success &&
       expectedOutput.length > 0 &&
       (stuStdout === expectedOutput ||
         stuStdout.replace(/\s+/g, '') === expectedOutput.replace(/\s+/g, '') ||
         normalizeTypeOutput(stuStdout) === normalizeTypeOutput(expectedOutput) ||
         stuStdout.endsWith(expectedOutput) ||
-        stuStdout.split('\n').some((l) => l.trim() === expectedOutput || l.trim().endsWith(expectedOutput)) ||
+        stuStdout
+          .split('\n')
+          .some((l) => l.trim() === expectedOutput || l.trim().endsWith(expectedOutput)) ||
         (studentResult.state &&
           Object.entries(studentResult.state).some(
-            ([k, v]) => `${k}=${v}` === expectedOutput || `${k} = ${v}` === expectedOutput || String(v) === expectedOutput
+            ([k, v]) =>
+              `${k}=${v}` === expectedOutput ||
+              `${k} = ${v}` === expectedOutput ||
+              String(v) === expectedOutput
           )))
 
-    isSuccess = comparison.isSuccess || matchesExpected || orderCorrect
+    isSuccess = comparison.isSuccess || matchesExpected || (studentResult.success && orderCorrect)
     responseMessage = comparison.responseMessage
     executionStdout = comparison.displayOutput
 
-    if (matchesExpected && !comparison.isSuccess) {
+    if ((matchesExpected || (studentResult.success && orderCorrect)) && !comparison.isSuccess) {
       isSuccess = true
       responseMessage = '¡Correcto! El código se ejecutó y produjo el resultado esperado.'
     }
@@ -296,6 +311,10 @@ export async function POST(request: NextRequest) {
       message: responseMessage,
       stdout: executionStdout,
       sessionType: sessionTipo || 'clase',
+      flowTrace,
+      executedLines,
+      skippedLines,
+      state: executionState,
     },
     { status: 200 },
   )

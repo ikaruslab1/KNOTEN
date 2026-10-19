@@ -7,44 +7,60 @@ export type SplitBlock = {
 }
 
 // Keywords that introduce an indentation block
-const INDENT_KEYWORDS = [
-  'if ',
-  'elif ',
-  'else:',
-  'for ',
-  'while ',
-  'def ',
-  'class ',
-  'with ',
-  'try:',
-  'except',
-  'finally:',
-  'async def ',
-  'async for ',
-  'async with ',
-]
+const INDENT_KEYWORDS_REGEX = /^(?:if|elif|else|for|while|def|class|with|try|except|finally|match|case|async\s+(?:def|for|with))\b/
 
 /**
- * Returns true if the trimmed line starts with any of the INDENT_KEYWORDS.
- * These are the lines that introduce a new indentation scope.
+ * Returns true if the trimmed line starts with any of the Python block keywords.
+ * Handles both `if x > 0:` and `if(x > 0):`.
  */
 function isIndentKeywordLine(trimmed: string): boolean {
-  return INDENT_KEYWORDS.some((kw) => trimmed.startsWith(kw))
+  return INDENT_KEYWORDS_REGEX.test(trimmed)
 }
 
 /**
  * Calculates the 0-based indentation depth of a raw line.
- * Each group of 4 leading spaces counts as 1 level.
+ * Supports standard 4-space indentation as well as 2-space indentation if used consistently.
  * Tabs are treated as 4 spaces each.
  */
-function calcIndentLevel(rawLine: string): number {
+function calcIndentSpaces(rawLine: string): number {
   let spaces = 0
   for (const ch of rawLine) {
     if (ch === ' ') spaces++
     else if (ch === '\t') spaces += 4
     else break
   }
-  return Math.floor(spaces / 4)
+  return spaces
+}
+
+/**
+ * Normalizes raw leading space counts across lines into 0-based indentation levels (0, 1, 2...).
+ */
+function computeLineIndentLevels(rawLines: string[]): number[] {
+  const spaceCounts = rawLines.map((l) => (l.trim() === '' ? 0 : calcIndentSpaces(l)))
+  const nonZero = spaceCounts.filter((s) => s > 0)
+  if (nonZero.length === 0) return spaceCounts.map(() => 0)
+
+  // Detect indentation unit (usually 4, or 2 if 2-space indentation is used)
+  const minIndent = Math.min(...nonZero)
+  const unit = minIndent >= 4 ? 4 : minIndent >= 2 ? minIndent : 1
+
+  const indentStack: number[] = [0]
+  return rawLines.map((l, idx) => {
+    if (l.trim() === '') return 0
+    const sp = spaceCounts[idx]
+    if (sp === 0) {
+      indentStack.length = 1
+      return 0
+    }
+    if (sp > indentStack[indentStack.length - 1]) {
+      indentStack.push(sp)
+      return indentStack.length - 1
+    }
+    while (indentStack.length > 1 && indentStack[indentStack.length - 1] > sp) {
+      indentStack.pop()
+    }
+    return Math.max(1, indentStack.length - 1 || Math.round(sp / unit))
+  })
 }
 
 /**
@@ -82,19 +98,21 @@ export function tokenizeLine(line: string): string[] {
  *   For example, `x = 10` produces 3 blocks: `"x"`, `"="`, `"10"`.
  * - If a line introduces a new indent scope (ends with ':' AND starts
  *   with an INDENT_KEYWORD), an additional 'indentacion' placeholder block is
- *   appended after its tokens.
+ *   appended after its tokens with the target scope's indent_level (indentLevel + 1).
  * - `orden_correcto` is assigned sequentially starting from 0.
  */
 export function splitPythonCode(rawCode: string): SplitBlock[] {
   const lines = rawCode.split('\n')
+  const lineIndents = computeLineIndentLevels(lines)
   const blocks: SplitBlock[] = []
   let order = 0
   let lineIdx = 0
 
-  for (const rawLine of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i]
     if (rawLine.trim() === '') continue
 
-    const indentLevel = calcIndentLevel(rawLine)
+    const indentLevel = lineIndents[i] ?? 0
     const tokens = tokenizeLine(rawLine)
 
     if (tokens.length === 0) continue
@@ -109,7 +127,7 @@ export function splitPythonCode(rawCode: string): SplitBlock[] {
       })
     }
 
-    const trimmed = rawLine.trim()
+    const trimmed = rawLine.replace(/#[^\r\n]*$/, '').trim()
     // If the line ends with ':' and starts with an indent keyword,
     // insert an 'indentacion' placeholder immediately after its tokens.
     if (trimmed.endsWith(':') && isIndentKeywordLine(trimmed)) {
@@ -117,7 +135,7 @@ export function splitPythonCode(rawCode: string): SplitBlock[] {
         tipo: 'indentacion',
         contenido: '',
         orden_correcto: order++,
-        indent_level: indentLevel,
+        indent_level: indentLevel + 1,
         line_index: lineIdx,
       })
     }
