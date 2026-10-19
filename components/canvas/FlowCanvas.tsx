@@ -427,7 +427,7 @@ function getNodeDimensions(node: Node): { width: number; height: number } {
   if (node.type === "indentBlock") {
     const rows = node.data?.rows ?? 1
     const level = node.data?.level ?? 1
-    return { width: level > 1 ? 152 : 112, height: rows * 64 }
+    return { width: level * 112, height: rows * 64 }
   }
   if (node.type === "sticker") {
     const scale = node.data?.scale ?? 1
@@ -1502,12 +1502,12 @@ function FlowCanvasInner({
         const mergedIds: string[] = targetNode.data?.mergedBlockIds ?? []
         const newBlockId = mergedIds[1] || `indent-${Date.now()}`
 
-        // Create the second separated block placed 165px to the right
+        // Create the second separated block placed 128px to the right (within original level 2 footprint)
         const separatedNode: Node = {
           id: newBlockId,
           type: "indentBlock",
           position: {
-            x: targetNode.position.x + 165,
+            x: targetNode.position.x + 128,
             y: targetNode.position.y,
           },
           data: {
