@@ -770,24 +770,46 @@ function FlowCanvasInner({
         // ignore evaluation syntax errors while student is connecting blocks
       }
 
-      const doc = inspectPythonBlock(
-        {
-          id: node.id,
-          tipo: node.type,
-          code: node.data?.code,
-          contenido: node.data?.code || node.data?.text || node.data?.emoji,
-          data: node.data,
-        },
-        { currentScope }
-      )
+      try {
+        const doc = inspectPythonBlock(
+          {
+            id: node.id,
+            tipo: node.type,
+            code: node.data?.code,
+            contenido: node.data?.code || node.data?.text || node.data?.emoji,
+            data: node.data,
+          },
+          { currentScope }
+        )
 
-      setInspectModal({
-        doc,
-        position: { x: event.clientX, y: event.clientY },
-      })
+        setInspectModal({
+          doc,
+          position: { x: event.clientX, y: event.clientY },
+        })
+      } catch (err) {
+        console.error("Error inspecting block:", err)
+      }
     },
     [nodes, edges]
   )
+
+  // Automatically dismiss inspection modal when window loses focus (e.g. switching windows) or is hidden
+  useEffect(() => {
+    const handleBlur = () => {
+      setInspectModal(null)
+    }
+    const handleVisibility = () => {
+      if (document.hidden) {
+        setInspectModal(null)
+      }
+    }
+    window.addEventListener("blur", handleBlur)
+    document.addEventListener("visibilitychange", handleVisibility)
+    return () => {
+      window.removeEventListener("blur", handleBlur)
+      document.removeEventListener("visibilitychange", handleVisibility)
+    }
+  }, [])
 
   // ── Physics & Particles state ───────────────────────────────────────────────
   const [bursts, setBursts] = useState<ParticleBurstEvent[]>([])
@@ -2629,6 +2651,14 @@ function FlowCanvasInner({
         onEdgeUpdateEnd={onEdgeUpdateEnd}
         onEdgeDoubleClick={onEdgeDoubleClick}
         onNodeContextMenu={handleNodeContextMenu}
+        onPaneContextMenu={(e) => {
+          e.preventDefault()
+          setInspectModal(null)
+        }}
+        onEdgeContextMenu={(e) => {
+          e.preventDefault()
+          setInspectModal(null)
+        }}
         onPaneClick={() => setInspectModal(null)}
         onMoveStart={() => setInspectModal(null)}
         edgesUpdatable={!isReadOnly}

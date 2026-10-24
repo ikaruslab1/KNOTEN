@@ -79,6 +79,43 @@ export default function BlockInfoModal({
     setCoords({ x: posX, y: posY })
   }, [isOpen, position, isMobile, doc])
 
+  // Close when clicking or pointerdown occurs outside the floating card (desktop)
+  useEffect(() => {
+    if (!isOpen || isMobile) return
+
+    const handlePointerDownOutside = (e: MouseEvent | PointerEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        onClose()
+      }
+    }
+
+    document.addEventListener('pointerdown', handlePointerDownOutside)
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDownOutside)
+    }
+  }, [isOpen, isMobile, onClose])
+
+  // Close on window blur or visibility change (switching windows/apps)
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handleBlur = () => {
+      onClose()
+    }
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        onClose()
+      }
+    }
+
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [isOpen, onClose])
+
   // Close on Escape key
   useEffect(() => {
     if (!isOpen) return
@@ -109,12 +146,6 @@ export default function BlockInfoModal({
         aria-modal="true"
         role="dialog"
       >
-        {/* Invisible backdrop to dismiss on click outside */}
-        <div
-          className="fixed inset-0 pointer-events-auto bg-black/10 backdrop-blur-[0.5px]"
-          onClick={onClose}
-        />
-
         {/* Floating Card */}
         <div
           ref={cardRef}

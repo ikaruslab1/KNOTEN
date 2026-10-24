@@ -220,19 +220,37 @@ export default function ActivityBuilder({ activityId, initialActivity, initialBl
     position: { x: number; y: number }
   } | null>(null)
 
+  // Automatically dismiss inspect modal on window blur or visibility change
+  useEffect(() => {
+    const handleBlur = () => setInspectModal(null)
+    const handleVisibility = () => {
+      if (document.hidden) setInspectModal(null)
+    }
+    window.addEventListener('blur', handleBlur)
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      window.removeEventListener('blur', handleBlur)
+      document.removeEventListener('visibilitychange', handleVisibility)
+    }
+  }, [])
+
   const handleBlockContextMenu = useCallback(
     (e: React.MouseEvent, targetBlock: SplitBlock) => {
       e.preventDefault()
       e.stopPropagation()
-      const doc = inspectPythonBlock({
-        tipo: targetBlock.tipo,
-        code: targetBlock.contenido,
-        contenido: targetBlock.contenido,
-      })
-      setInspectModal({
-        doc,
-        position: { x: e.clientX, y: e.clientY },
-      })
+      try {
+        const doc = inspectPythonBlock({
+          tipo: targetBlock.tipo,
+          code: targetBlock.contenido,
+          contenido: targetBlock.contenido,
+        })
+        setInspectModal({
+          doc,
+          position: { x: e.clientX, y: e.clientY },
+        })
+      } catch (err) {
+        console.error('Error inspecting block in ActivityBuilder:', err)
+      }
     },
     []
   )
